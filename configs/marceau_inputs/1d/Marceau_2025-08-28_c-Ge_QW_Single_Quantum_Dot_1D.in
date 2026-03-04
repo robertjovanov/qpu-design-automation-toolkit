@@ -18,7 +18,7 @@
 $strain  = 1 # run strain model
 $poisson = 1 # solve the Poisson equation with bulk densities of states
 $quantum = 0 # solve the Schroedinger equation once
-$quantum_poisson = 1 # solve the Schroedinger equation self-consistently with the Poisson equation
+$quantum_poisson = 0 # solve the Schroedinger equation self-consistently with the Poisson equation
 $effective_model = 0 # replace c-Ge cap with the alloy and effective charges, when set to 0, ideally one should have run $quantum_poisson = 1
 
 #--- numerical parameters for the quantum solver ----
@@ -178,7 +178,7 @@ impurities{
 
 contacts{
     vacuum_level = $vacuum_level
-    schottky{ name = PG     bias = $V_PG    work_function = $work_function_Gate } 
+    schottky{ name = PG     bias = 0.0   work_function = $work_function_Gate - $V_PG } 
     ohmic{    name = Body   bias = 0.0      shift = 0.0 }
 }
 
@@ -202,8 +202,7 @@ structure{
     # cs-Ge QW
     region{
         line{ x = [$z_SiGe_buffer, $z_GeQW] }
-        binary{ name = Ge }
-        integrate{ hole_density{} }                   
+        binary{ name = Ge }                   
     }
     # r-SiGe cap
     region{
@@ -298,7 +297,7 @@ poisson{
 
 currents{
     recombination_model{}
-    insulator_bandgap = 5
+#    insulator_bandgap = 5
 }
 
 classical{ 

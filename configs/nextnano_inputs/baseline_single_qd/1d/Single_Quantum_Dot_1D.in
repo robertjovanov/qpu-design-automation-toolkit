@@ -298,7 +298,7 @@ poisson{
 
 currents{
     recombination_model{}
-    insulator_bandgap = 5
+#    insulator_bandgap = 5
 }
 
 classical{ 

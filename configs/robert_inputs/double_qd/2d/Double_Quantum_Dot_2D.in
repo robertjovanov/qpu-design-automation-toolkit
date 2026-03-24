@@ -1,0 +1,672 @@
+# Double Quantum Dot - 2D - Robert Jovanov
+
+#----------------------
+#--- solver control ---
+#----------------------
+
+#--- choice of solvers ---
+
+$strain = 1
+$poisson = 1
+$quantum = 0
+$quantum_poisson = 1
+
+$decomposition = 0 # should not be needed in 2D
+
+#--- numerical parameters for the quantum solver ----
+                  
+$n_c_Ge_QW_HH = 50
+$n_c_Ge_QW_LH = 100
+
+#-------------------------
+#--- system definition ---
+#-------------------------
+
+#--- temperature and boundary conditions ---
+
+$temperature = 0.01 # (K)
+
+$V_BG1 = 0.0 # (V)
+$V_PG1 = -3.0 # (V)
+$V_BG2 = 0.0 # (V)
+$V_PG2 = -3.0 # (V)
+$V_BG3 = 0.0 # (V)
+$V_source = 0.0 # (V)
+$V_drain = 0.0 # (V)
+
+#--- doping and surface charges ---
+
+$doping_cap = 0.0 # 5e18        # (cm^-3) doping in the modulation region of the cap layer
+$doping_buffer = 0.0 # 5e18        # (cm^-3) doping in the modulation region of the buffer layer
+$dop_energy = 0.02 # (eV) activation energy of the impurity
+
+$surface_charge_sheet = 0 # 9.93016e+11 # (cm^-2) sheet charge density
+
+#--- materials ---
+
+$vacuum_level = 6.43 # (eV) 6.3 is a default
+$work_function_OC = 4.3 # (eV) work function of ohmic-contact metals Al
+$work_function_Gate = 4.3 # (eV) work function of gate metals Al
+
+$alloy_x = 0.15 # mol fraction of the Si in the SiGe alloy
+
+#--- device ---
+
+# Abbreviations:
+# PG - plunger gate
+# BG - barrier gate
+# OC - ohmic contacts
+
+# x-axis, in-plane direction
+# Sequential horizontal chain:
+# Source | BG1 | PG1 | BG2 | PG2 | BG3 | Drain
+# The x-origin is the LEFT boundary of the simulation domain.
+
+# widths
+$Lx_Source = 40 # (nm) width of the source ohmic contact at the top of the simulation domain
+$Lx_BG1 = 40 # (nm) width of barrier gate 1
+$Lx_PG_body = 40 # (nm) width of the plunger-body neck in the lateral in-plane direction; not used in this 2D xz cut
+$Ly_PG_body = 60 # (nm) length of the plunger-body neck in the transport direction; not used in this 2D xz cut
+$R_PG1 = 50 # (nm) radius of plunger gate 1 head; in this 2D xz cut the visible plunger width is 2*R_PG1
+$Lx_BG2 = 40 # (nm) width of barrier gate 2
+$R_PG2 = 50 # (nm) radius of plunger gate 2 head; in this 2D xz cut the visible plunger width is 2*R_PG2
+$Lx_BG3 = 40 # (nm) width of barrier gate 3
+$Lx_Drain = 40 # (nm) width of the drain ohmic contact at the top of the simulation domain
+$Lx_OC_bottom = 30 # (nm) width of the ohmic contacts at the bottom (in the buffer)
+
+# gaps
+$Lx_Source_BG1 = 1000 # (nm) distance between the source ohmic edge and BG1
+$Lx_BG1_PG1 = 20 # (nm) distance between BG1 and PG1
+$Lx_PG1_BG2 = 20 # (nm) distance between PG1 and BG2
+$Lx_BG2_PG2 = 20 # (nm) distance between BG2 and PG2
+$Lx_PG2_BG3 = 20 # (nm) distance between PG2 and BG3
+$Lx_BG3_Drain = 1000 # (nm) distance between BG3 and the drain ohmic edge
+
+# z-axis, the growth direction
+$Lz_PG = 30 # (nm) thickness of the P Gate (PG)
+$Lz_AlO_2 = 5 # (nm) minimum thickness of the layer between PG and BG
+$Lz_BG = 30 # (nm) thickness of the B Gate (BG)
+$Lz_AlO_1 = 7 # (nm) minimum thickness of the layer between BG and the interface dielectric and cap
+$Lz_Ge_cap = 1 # (nm) thickness of the cs-Ge cap
+$Lz_SiGe_cap = 100 # (nm) thickness of the r-SiGe cap
+$Lz_Ge_QW = 15 # (nm) thickness of the cs-Ge quantum well
+$Lz_SiGe_buffer = 4000 # (nm) thickness of the r-SiGe buffer
+
+$Lz_MD_buffer = 1 # (nm) thickness of the modulation doping region in the buffer
+$Lz_MD_cap = 1 # (nm) thickness of the modulation doping region in the cap
+
+$Lz_MD_buffer_dist = 50 # (nm) distance of the modulation doping region in the buffer
+$Lz_MD_cap_dist = 50 # (nm) distance of the modulation doping region in the cap
+
+$Lz_OC = 250 # (nm) depth of the Ohmic contacts (from the surface)
+
+#--- quantum region ---
+
+$Lx_QR_margin = 20 # (nm) margin from the outer barrier edges to the quantum-region edges
+ 
+$Lz_QR_c_Ge_QW_barrier = 5 # (nm) distance of the border of the quantum region to the quantum well (at each side)
+
+#--- 2DHG section ---
+
+$Lz_2DHG = 2 # (nm) distance of the 2DHG section plane to the interface z_Ge_QW
+
+#--- additional for grid ---
+
+$Lx_GRID_margin = 150 # (nm) margin around the active gate region where the finer x-grid ends
+
+$Lz_grid_buffer = 1000 # (nm) distance between the modulation region in the buffer and the position where the coarse grid begins
+$Lz_grid_cap = 20 # (nm) distance in the cap to its modulation region, where the grid resolution changes from fine to coarse
+
+#--- grid spacings ---
+
+$dx = 10 # (nm) grid resolution in the x direction
+$dx_QD = 5 # (nm) grid resolution in the quantum dot region ( x direction )
+$dx_coarse = 100 # (nm) coarse grid resolution in the long source-BG1 and BG3-drain gaps
+
+$dz_buffer_coarse = 100 # (nm) grid resolution in the buffer region and substrate
+$dz_buffer_medium = 50 # (nm) grid resolution in the buffer region and substrate
+$dz_buffer_fine = 5 # (nm) grid resolution in the buffer region and substrate
+                         
+$dz_MD_fine = 0.5 # (nm) grid resolution around MD region
+                         
+$dz_QW_fine = 0.5 # (nm) grid resolution in the growth direction - QW region
+$dz_QW_coarse = 1 # (nm) grid resolution in the growth direction - QW region
+
+$dz_cap_fine = 0.1 # (nm) grid resolution in the growth direction - cap region
+$dz_oxide_gates_medium = 2 # (nm) grid resolution in the growth direction - in the oxide and gate regions
+
+#-------------------------------------------
+#--- derived lines for design definition ---
+#-------------------------------------------
+
+#--- device ---
+# Explicit left-to-right construction of the serial double-dot chain.
+
+$x_domain_left = 0.0
+
+$x_Source_left = $x_domain_left
+$x_Source_right = $x_Source_left + $Lx_Source
+$x_Source_center = 0.5*($x_Source_left + $x_Source_right)
+$x_Source_bottom = $x_Source_left + $Lx_OC_bottom
+
+$x_BG1_left = $x_Source_right + $Lx_Source_BG1
+$x_BG1_right = $x_BG1_left + $Lx_BG1
+$x_BG1_center = 0.5*($x_BG1_left + $x_BG1_right)
+
+$x_PG1_left = $x_BG1_right + $Lx_BG1_PG1
+$x_PG1_center = $x_PG1_left + $R_PG1
+$x_PG1_right = $x_PG1_left + 2*$R_PG1
+
+$x_BG2_left = $x_PG1_right + $Lx_PG1_BG2
+$x_BG2_right = $x_BG2_left + $Lx_BG2
+$x_BG2_center = 0.5*($x_BG2_left + $x_BG2_right)
+
+$x_PG2_left = $x_BG2_right + $Lx_BG2_PG2
+$x_PG2_center = $x_PG2_left + $R_PG2
+$x_PG2_right = $x_PG2_left + 2*$R_PG2
+
+$x_BG3_left = $x_PG2_right + $Lx_PG2_BG3
+$x_BG3_right = $x_BG3_left + $Lx_BG3
+$x_BG3_center = 0.5*($x_BG3_left + $x_BG3_right)
+
+$x_Drain_left = $x_BG3_right + $Lx_BG3_Drain
+$x_Drain_right = $x_Drain_left + $Lx_Drain
+$x_Drain_center = 0.5*($x_Drain_left + $x_Drain_right)
+$x_Drain_bottom = $x_Drain_right - $Lx_OC_bottom
+
+$x_domain_right = $x_Drain_right
+
+$z_SiGe_buffer = $Lz_SiGe_buffer
+$z_GeQW = $Lz_SiGe_buffer + $Lz_Ge_QW
+$z_SiGe_cap = $Lz_SiGe_buffer + $Lz_Ge_QW + $Lz_SiGe_cap
+$z_Ge_cap = $Lz_SiGe_buffer + $Lz_Ge_QW + $Lz_SiGe_cap + $Lz_Ge_cap
+$z_BG_start = $Lz_SiGe_buffer + $Lz_Ge_QW + $Lz_SiGe_cap + $Lz_Ge_cap + $Lz_AlO_1
+$z_BG_end = $Lz_SiGe_buffer + $Lz_Ge_QW + $Lz_SiGe_cap + $Lz_Ge_cap + $Lz_AlO_1 + $Lz_BG
+$z_PG_start = $Lz_SiGe_buffer + $Lz_Ge_QW + $Lz_SiGe_cap + $Lz_Ge_cap + $Lz_AlO_1 + $Lz_BG + $Lz_AlO_2
+$z_PG_end = $Lz_SiGe_buffer + $Lz_Ge_QW + $Lz_SiGe_cap + $Lz_Ge_cap + $Lz_AlO_1 + $Lz_BG + $Lz_AlO_2 + $Lz_PG
+
+$z_MD_buffer_start = $z_SiGe_buffer - $Lz_MD_buffer_dist - $Lz_MD_buffer
+$z_MD_buffer_end = $z_SiGe_buffer - $Lz_MD_buffer_dist
+$z_MD_cap_start = $z_GeQW + $Lz_MD_cap_dist
+$z_MD_cap_end = $z_GeQW + $Lz_MD_cap_dist + $Lz_MD_cap
+
+$z_OC = $z_Ge_cap - $Lz_OC
+
+$z_body_contact = -$dz_buffer_coarse
+
+#--- additional for grid ---
+
+$x_GRID_left = $x_BG1_left - $Lx_GRID_margin
+$x_GRID_right = $x_BG3_right + $Lx_GRID_margin
+
+$z_GRID_medium = $z_MD_buffer_start - $Lz_grid_buffer # Position where the coarse grid ends
+
+#--- quantum region ---
+
+$x_QR_left = $x_BG1_left - $Lx_QR_margin
+$x_QR_right = $x_BG3_right + $Lx_QR_margin
+
+$z_QR_c_Ge_QW_start = $z_SiGe_buffer - $Lz_QR_c_Ge_QW_barrier
+$z_QR_c_Ge_QW_end = $z_GeQW + $Lz_QR_c_Ge_QW_barrier
+
+#--- doping and surface charges ---
+
+$surface_charge_density = $surface_charge_sheet * 1e7/$Lz_Ge_cap # (cm^-3)
+
+output{
+    only_sections = no
+
+    format2D = AvsAscii_one_file
+    format3D = VTKAscii
+
+    set_origin{ x = 0.0  y = $z_GeQW }
+
+    section1D{ name = "x_QD"   y = $z_GeQW - $Lz_2DHG }
+    section1D{ name = "z_PG1"  x = $x_PG1_center }
+    section1D{ name = "z_BG2"  x = $x_BG2_center }
+    section1D{ name = "z_PG2"  x = $x_PG2_center }
+}
+
+run{ 
+    !WHEN $strain             strain{}
+    !WHEN $poisson            poisson{}
+    !WHEN $quantum            quantum{}
+    !WHEN $quantum_poisson    quantum_poisson{}
+}
+
+# z is parallel to the growth direction
+global{ 
+    simulate2D{}
+    temperature = $temperature
+    crystal_zb{ 
+        x_hkl = [1, 0, 0]
+        y_hkl = [0, 0, 1]
+    }
+    substrate{
+        name = "Si(x)Ge(1-x)"
+        alloy_x = $alloy_x
+    }
+}
+
+impurities{ 
+    acceptor{
+        name = modulation_doping
+        energy = $dop_energy
+        degeneracy = 4
+    }
+    charge{
+        name = "surface_charge"
+        type = "positive"
+    }
+}
+
+contacts{ 
+    vacuum_level = $vacuum_level
+    schottky{ name = BG1        bias = $V_BG1       work_function = $work_function_Gate }
+    schottky{ name = PG1        bias = $V_PG1       work_function = $work_function_Gate }
+    schottky{ name = BG2        bias = $V_BG2       work_function = $work_function_Gate }
+    schottky{ name = PG2        bias = $V_PG2       work_function = $work_function_Gate }
+    schottky{ name = BG3        bias = $V_BG3       work_function = $work_function_Gate }
+    schottky{ name = Source     bias = $V_source    work_function = $work_function_OC }
+    schottky{ name = Drain      bias = $V_drain     work_function = $work_function_OC }
+    ohmic{    name = Body       bias = 0.0          shift = 0.0 }
+}
+
+structure{ 
+    output_contact_index{ boxes = no }
+    output_impurities{ boxes = no }
+    output_region_index{ boxes = no }
+    output_material_index{ boxes = no }
+    
+    # body
+    region{                         
+        rectangle{ 
+            x = [$x_domain_left, $x_domain_right]
+            y = [$z_body_contact, 0.0]
+        }
+        contact{ name = Body }
+        ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
+    }
+
+    # r-SiGe buffer
+    region{
+        rectangle{ 
+            x = [$x_domain_left, $x_domain_right]
+            y = [0.0, $z_SiGe_buffer] 
+        }
+        ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
+    }
+
+    # cs-Ge QW
+    region{
+        rectangle{ 
+            x = [$x_domain_left, $x_domain_right]
+            y = [$z_SiGe_buffer, $z_GeQW]
+        }
+        binary{ name = Ge }
+        integrate{ hole_density{} }                   
+    }
+ 
+    # r-SiGe cap
+    region{
+        rectangle{  
+            x = [$x_domain_left, $x_domain_right]
+            y = [$z_GeQW, $z_SiGe_cap] 
+        }
+        ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
+    }
+
+    # cs-Ge cap
+    region{
+        rectangle{ 
+            x = [$x_domain_left, $x_domain_right]
+            y = [$z_SiGe_cap, $z_Ge_cap] 
+        }
+        ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
+        doping{ constant{ name = "surface_charge" conc = $surface_charge_density }}        
+    }
+
+    # Al2O3 (dielectric) (see gates)
+    region{
+        rectangle{ 
+            x = [$x_domain_left, $x_domain_right]
+            y = [$z_Ge_cap, $z_PG_end]
+       }
+        binary{ name = Sapphire_zb }
+    }
+
+    # Source
+    region{
+        rectangle{ 
+            x = [$x_Source_left, $x_Source_right]                                
+            y = [$z_OC, $z_PG_end] 
+        }
+        contact{ name = "Source"}
+    }
+
+    # Drain
+    region{                         
+        rectangle{ 
+            x = [$x_Drain_left, $x_Drain_right]
+            y = [$z_OC, $z_PG_end]  
+        }
+        contact{ name = "Drain"}
+    }
+
+    # Barrier gate 1
+    region{                         
+        rectangle{ 
+            x = [$x_BG1_left, $x_BG1_right]
+            y = [$z_BG_start, $z_BG_end] 
+        }
+        contact{ name = BG1}
+    }
+
+    # Plunger gate 1
+    region{                         
+       rectangle{ 
+            x = [$x_PG1_left, $x_PG1_right]                                 
+            y = [$z_PG_start, $z_PG_end] 
+       }
+       contact{ name = PG1}
+    }
+
+    # Barrier gate 2
+    region{                         
+        rectangle{ 
+            x = [$x_BG2_left, $x_BG2_right]
+            y = [$z_BG_start, $z_BG_end] 
+        }
+        contact{ name = BG2}
+    }
+
+    # Plunger gate 2
+    region{                         
+       rectangle{ 
+            x = [$x_PG2_left, $x_PG2_right]                                 
+            y = [$z_PG_start, $z_PG_end] 
+       }
+       contact{ name = PG2}
+    }
+
+    # Barrier gate 3
+    region{                         
+        rectangle{ 
+            x = [$x_BG3_left, $x_BG3_right]
+            y = [$z_BG_start, $z_BG_end] 
+        }
+        contact{ name = BG3}
+    }
+
+    # Modulation region in the buffer
+    region{
+        rectangle{ 
+            x = [$x_domain_left, $x_domain_right]
+            y = [$z_MD_buffer_start, $z_MD_buffer_end]
+        }
+        doping{ constant{ name = modulation_doping conc = $doping_buffer}}
+    }
+
+    # Modulation region in the cap
+    region{
+        rectangle{ 
+            x = [$x_domain_left, $x_domain_right]                                
+            y = [$z_MD_cap_start, $z_MD_cap_end]
+        }
+        doping{ constant{ name = modulation_doping conc = $doping_cap } }
+    }
+}
+
+grid{ 
+    xgrid{
+        line{ pos = $x_domain_left                    spacing = $dx }
+        line{ pos = $x_Source_bottom                  spacing = $dx_QD }
+        line{ pos = $x_Source_right                   spacing = $dx_coarse }
+
+        line{ pos = $x_GRID_left                      spacing = $dx_coarse }
+
+        line{ pos = $x_QR_left                        spacing = $dx_QD }
+        line{ pos = $x_BG1_left                       spacing = $dx_QD }
+        line{ pos = $x_BG1_center                     spacing = $dx_QD }
+        line{ pos = $x_BG1_right                      spacing = $dx_QD }
+
+        line{ pos = $x_PG1_left                       spacing = $dx_QD }
+        line{ pos = $x_PG1_center                     spacing = $dx_QD }
+        line{ pos = $x_PG1_right                      spacing = $dx_QD }
+
+        line{ pos = $x_BG2_left                       spacing = $dx_QD }
+        line{ pos = $x_BG2_center                     spacing = $dx_QD }
+        line{ pos = $x_BG2_right                      spacing = $dx_QD }
+
+        line{ pos = $x_PG2_left                       spacing = $dx_QD }
+        line{ pos = $x_PG2_center                     spacing = $dx_QD }
+        line{ pos = $x_PG2_right                      spacing = $dx_QD }
+
+        line{ pos = $x_BG3_left                       spacing = $dx_QD }
+        line{ pos = $x_BG3_center                     spacing = $dx_QD }
+        line{ pos = $x_BG3_right                      spacing = $dx_QD }
+        line{ pos = $x_QR_right                       spacing = $dx_QD }
+
+        line{ pos = $x_GRID_right                     spacing = $dx_coarse }
+
+        line{ pos = $x_Drain_left                     spacing = $dx_coarse }
+        line{ pos = $x_Drain_bottom                   spacing = $dx_QD }
+        line{ pos = $x_domain_right                   spacing = $dx }
+    }
+    ygrid{
+        # For boundary condition
+        line{ pos = $z_body_contact                 spacing = $dz_buffer_coarse }
+    
+        # Substrate and buffers 
+        line{ pos = 0.0                             spacing = $dz_buffer_coarse }
+        line{ pos = $z_GRID_medium                  spacing = $dz_buffer_medium }
+        line{ pos = $z_OC                           spacing = $dz_buffer_fine } 
+    
+        # Modulation doping in the buffer   
+        line{ pos = $z_MD_buffer_start              spacing = $dz_MD_fine }
+        line{ pos = $z_MD_buffer_end                spacing = $dz_MD_fine }
+    
+        # The quantum region containing the QW  
+        line{ pos = $z_QR_c_Ge_QW_start             spacing = $dz_QW_coarse  }
+        line{ pos = $z_SiGe_buffer                  spacing = $dz_QW_fine }
+        line{ pos = $z_GeQW                         spacing = $dz_QW_fine }
+        line{ pos = $z_QR_c_Ge_QW_end               spacing = $dz_QW_coarse  }
+    
+        # Modulation doping in the cap  
+        line{ pos = $z_MD_cap_start                 spacing = $dz_MD_fine }
+        line{ pos = $z_MD_cap_end                   spacing = $dz_MD_fine }
+        # Beginning of the thin Ge cap   
+        line{ pos = $z_SiGe_cap                     spacing = $dz_cap_fine }
+        line{ pos = $z_Ge_cap                       spacing = $dz_cap_fine }
+    
+        # Dielectric and gates  
+        line{ pos = $z_BG_start                     spacing = $dz_oxide_gates_medium }
+        line{ pos = $z_BG_end                       spacing = $dz_oxide_gates_medium }
+        line{ pos = $z_PG_start                     spacing = $dz_oxide_gates_medium }
+        line{ pos = $z_PG_end                       spacing = $dz_oxide_gates_medium }
+    }
+}
+
+strain {
+    pseudomorphic_strain{}
+    output_strain_tensor{}
+    growth_direction = [0, 0, 1]
+}
+
+poisson{
+#    between_fermi_levels{}
+    charge_neutral{}
+    output_electric_field{}
+    output_potential{}
+}
+
+currents{
+    recombination_model{}
+#    insulator_bandgap = 5
+}
+
+classical{ 
+    Gamma{}
+    Delta{}
+    L{}
+    HH{}
+    LH{}
+    SO{}
+    output_bandedges{}
+    output_carrier_densities{}
+    output_ionized_dopant_densities{}
+}
+
+quantum{ 
+    region{ 
+        name = "c-Ge_QW"
+        x = [$x_QR_left, $x_QR_right]
+        y = [$z_QR_c_Ge_QW_start, $z_QR_c_Ge_QW_end]
+
+        boundary{
+            x = neumann 
+            y = neumann 
+        }
+
+        HH{ num_ev = $n_c_Ge_QW_HH }
+        LH{ num_ev = $n_c_Ge_QW_LH }
+
+        !IF($decomposition)
+            quantize_y{}
+            output_wavefunctions{ 
+                max_num = 100
+                amplitudes = no 
+                probabilities = yes
+            }
+        !ELSE
+            output_wavefunctions{
+                max_num = 100
+                amplitudes = no
+                probabilities = yes
+                all_k_points = no
+                energy_shift = shifted
+            }
+        !ENDIF                                                                                                                                
+        output_quantum_densities{}                 
+    }
+}
+
+$shift = 0.0
+
+database{
+# WARNING: The data below is just compied from our database (wz) and changed to zb here adapting the syntax where needed
+# It was also required to add the L and delta bands only for syntax reasons. In this way the band gap
+# of these bands were increased, in order they cannot taken into account in the computations
+# Please check if the other parameters make sense!
+
+    binary_zb {
+        name    = Sapphire_zb
+        valence = III_V                                         # III_V
+        lattice_consts{     
+     #   a     = 3.112                                          # AlN value
+        a     = 4.63                                            # a in the hexagonal crystal
+        a_expansion = 0                                         # ?
+        }
+        dielectric_consts{
+            static_a  = 6.5                                     # www.crystran.co.uk/sappdata.htm  11.5 (para) 9.4 (perp) at 1MHz
+            optical_a = 4.68                                    # AlN value
+        }
+        elastic_consts{
+            c11 = 496       c12 = 164       #c13 = 115          # www.crystran.co.uk/sappdata.htm
+            #c33 = 498       
+            c44 = 148
+        }
+        piezoelectric_consts {
+            #e31 = -0.50     e33 = 1.79                         # AlN value
+            #e15 = -0.48                                        # AlN value
+            e14 = 0.000                                         # Si value ( e14 was not in the database)
+        }
+        #    pyroelectric_consts {
+        #        p1 = 0.0                                           
+        #    }
+        conduction_bands{
+            Gamma{
+            #   mass_l                = 0.32                    # AlN value
+            #   mass_t                = 0.30                    # AlN value
+            mass                 = 0.32                         # AlN value
+            bandgap               = 6.5 + 0.5*$shift                         
+            bandgap_alpha         = 0.0                         # ?
+            bandgap_beta          = 0                           # ?
+            #   defpot_absolute_l     = -3.4                    # AlN value  along c axis
+            #   defpot_absolute_t     = -11.8                   # AlN value  perpendicular to c axis
+            defpot_absolute        = -3.4                       # AlN value  along c axis
+            }
+            # from SiO2 - placed here, only for running (bandgap set to 10 to not be taken into account)
+            L{
+                mass_l                = 1.420                       # Si value
+                mass_t                = 0.130                       # Si value
+                bandgap               = 10                          # guess (0 K)
+                bandgap_alpha         = 0
+                bandgap_beta          = 0
+                defpot_absolute       = 0
+                defpot_uniaxial       = 0
+            }
+            #from SiO2 - placed here, only for running (bandgap set to 10 to not be taken into account)
+            Delta{
+                mass_l                = 0.5                          # M. Fischetti, JAP 83, 270 (1998)
+                mass_t                = 0.5                          # M. Fischetti, JAP 83, 270 (1998)
+                bandgap               = 10                           # (0 K)
+                bandgap_alpha         = 0
+                bandgap_beta          = 0
+                defpot_absolute       = 0
+                defpot_uniaxial       = 0
+                position              = 0.85                         # Si value
+            }
+        }
+        valence_bands{
+            bandoffset        = -1.41 - 0.5 * $shift         # AlN value
+    
+            # commented out below: previous values, for Sapphire wurtzite        
+            # HH{ mass_l = 3.53      mass_t = 10.42 }               # AlN value
+            #  LH{ mass_l = 3.53      mass_t = 0.24  }              # AlN value
+            # SO{ mass_l = 0.25      mass_t = 3.81  }               # AlN value
+
+            HH{ mass          = 3.53      }                         # AlN value
+            LH{ mass          = 3.53      }                         # AlN value
+            SO{ mass          = 0.25 }                              # AlN value
+            #  defpotentials = [ 0, 0, 0, 0, 0, 0 ]                 # ?
+            defpot_absolute   = 0
+            defpot_uniaxial_b = 0   defpot_uniaxial_d = 0
+            # delta = [-0.169 , 0.00633, 0.00633 ]                  # AlN value
+            delta_SO          = 0.0                                 # No information available for this parameter
+        }
+        kp_6_bands{ L = -6.69   M = -4.62   N = -8.56  kappa = -0.42 }  # Si values
+    
+            # commented out below: previous values, for Sapphire wurtzite
+            #    kp_6_bands{
+            #        A1 = -3.86     A2 = -0.25      A3 =  3.58              # AlN value
+            #        A4 = -1.32     A5 = -1.47      A6 = -1.64              # AlN value
+            #    }
+            #    kp_8_bands{                                                #
+            #        S1   =  0.805    S2   =  1.013                         # AlN value
+            #        E_P1 = 14.5      E_P2 = 14.5                           # AlN value
+            #        B1   =  0        B2   =  0         B3 =  0             # AlN value
+            #        A1   = -1.540    A2   = -0.25      A3 =  1.260         # AlN value
+            #        A4   = -0.160    A5   = -0.310     A6 =  4.877         # AlN value
+            #    }
+    
+            # kp_8 parameters below were taken from SiO2 ( and comments)
+        kp_8_bands{                                                # No useful model for indirect bandgap materials!
+            S = 6.41                                               # inverse effective mass
+            E_P = 0                                                # decoupled bands
+            B = 0                                                  # This value is zero in group IV semiconductors (inversion symmetry).
+            L = -6.69   M = -4.62   N = -8.56  kappa = -0.42       # 6-band parameters
+        }
+        mobility_constant{
+            electrons{  mumax = 100      exponent = 1.0  }         # AlN value
+            holes{      mumax = 100      exponent = 1.0  }         # AlN value
+        }
+        recombination{
+            SRH{       tau_n = 1.0e-9      nref_n = 1.0e19         # InP value !!!
+                   tau_p = 1.0e-9      nref_p = 1.0e18         # InP value !!!
+            }
+            Auger{     c_n = 0             c_p = 0 }               # InP value !!! 
+            radiative{ c = 1.1e-8 }                                # GaN value !!!
+        }
+    }
+}

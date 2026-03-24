@@ -57,7 +57,7 @@ $dz_oxide_gates_medium   = 5    # (nm) grid resolution in the growth direction -
 #-------------------------------------------
 
 #--- device ---
-$x_OC_bound =30000
+$x_OC_bound =30000 # 30 microns
 $x_QR = 500
 
 # Lz

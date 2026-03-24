@@ -181,7 +181,6 @@ def plot_heatmap(x: np.ndarray, z: np.ndarray, Z: np.ndarray, title: str, cbar: 
         fig.update_xaxes(range=[xlim[0], xlim[1]])
     if zlim is not None:
         fig.update_yaxes(range=[zlim[0], zlim[1]])
-    fig.show()
     return fig
 
 
@@ -200,7 +199,6 @@ def plot_lines_df(df: pd.DataFrame, xcol: str, ycols: list[str], title: str,
     )
     if xlim is not None:
         fig.update_xaxes(range=[xlim[0], xlim[1]])
-    fig.show()
     return fig
 
 
@@ -417,3 +415,413 @@ def sweep_multi_var(input_path: str | Path, variables: dict[str, list[float | in
         parallel_limit=parallel_limit
     )
     return sw
+
+def sweep_with_nn_sweep(
+    input_path: str | Path,
+    sweep_variables: dict[str, list[float | int]],
+    delete_old_files: bool = True,
+    delete_input_files: bool = False,
+    overwrite: bool = True,
+    show_log: bool = True,
+    convergenceCheck: bool = True,
+    parallel_limit: int = 1,
+):
+    """
+    Run a sweep using nextnanopy's nn.Sweep API (the one you already use):
+      sw = nn.Sweep(sweep_variables, inp_path)
+      sw.save_sweep(...)
+      sw.execute_sweep(...)
+    Returns the Sweep object.
+    """
+    import nextnanopy as nn
+
+    inp_path = str(input_path)
+    sw = nn.Sweep(sweep_variables, inp_path)
+
+    sw.save_sweep(delete_old_files=delete_old_files)
+    sw.execute_sweep(
+        delete_input_files=delete_input_files,
+        overwrite=overwrite,
+        show_log=show_log,
+        convergenceCheck=convergenceCheck,
+        parallel_limit=parallel_limit,
+    )
+    return sw
+
+def sweep_subrun_dir(sweep_root: str | Path, var: str, value: float) -> Path:
+    """
+    Return the subrun folder in a nextnanopy sweep directory matching __{var}_{value}_.
+    Example folder name: ...__V_PG_-3.0_
+    """
+    sweep_root = Path(sweep_root)
+    target = f"__{var}_{value}_"
+    matches = [p for p in sweep_root.iterdir() if p.is_dir() and target in p.name]
+    if not matches:
+        raise FileNotFoundError(f"No subrun folder containing '{target}' under {sweep_root}")
+    if len(matches) > 1:
+        raise RuntimeError(f"Multiple matches for '{target}': {[m.name for m in matches]}")
+    return matches[0]
+
+def compare_qw_sheet_density(
+    run_dir: str | Path,
+    zmin_nm: float = -15.0,
+    zmax_nm: float = 0.0,
+    bias_folder: str = "bias_00000",
+    integrated_file: str = "integrated_density_hole.dat",
+    integrated_region_col: str = "region_3[carriers/cm^2]",
+    density_file: str = "density_hole.dat",
+    verbose: bool = True,
+) -> dict:
+    """
+    Compare:
+      (A) nextnano-reported integrated sheet density (carriers/cm^2) from run_root/integrated_density_hole.dat
+    vs
+      (B) numerical integral of volumetric hole density p(z) from run_root/bias_00000/density_hole.dat over z in [zmin_nm, zmax_nm].
+
+    Units:
+      - integrated_density_hole.dat: carriers/cm^2
+      - density_hole.dat column Hole_density[1e18_cm^-3] means:
+            p_true[cm^-3] = p_file * 1e18
+      - 1 nm = 1e-7 cm
+      - sheet density: p_s[cm^-2] = ∫ p(z)[cm^-3] dz[cm]
+    """
+    from pathlib import Path
+    import numpy as np
+
+    run_dir = Path(run_dir)
+    bias_dir = run_dir / bias_folder
+
+    # --- read integrated sheet density from RUN ROOT ---
+    df_int = read_dat(run_dir / integrated_file)
+    if integrated_region_col not in df_int.columns:
+        raise ValueError(
+            f"Column '{integrated_region_col}' not found in {run_dir/integrated_file}.\n"
+            f"Available columns: {df_int.columns.tolist()}"
+        )
+    sheet_int = float(df_int.loc[0, integrated_region_col])  # carriers/cm^2
+
+    # --- read volumetric density from BIAS folder and integrate ---
+    df_den = read_dat(bias_dir / density_file)
+    zcol = df_den.columns[0]
+
+    hole_col = next((c for c in df_den.columns if "Hole_density" in c), None)
+    if hole_col is None:
+        raise ValueError(
+            f"No 'Hole_density' column found in {bias_dir/density_file}.\n"
+            f"Available columns: {df_den.columns.tolist()}"
+        )
+
+    z_nm = df_den[zcol].to_numpy(dtype=float)
+    p_file = df_den[hole_col].to_numpy(dtype=float)  # in units of 1e18 cm^-3
+
+    lo, hi = (zmin_nm, zmax_nm) if zmin_nm <= zmax_nm else (zmax_nm, zmin_nm)
+    mask = (z_nm >= lo) & (z_nm <= hi)
+    if not np.any(mask):
+        raise ValueError(f"No points found in z-window [{lo}, {hi}] nm. Check your z range / file.")
+
+    z_nm_w = z_nm[mask]
+    p_file_w = p_file[mask]
+
+    p_cm3 = p_file_w * 1e18
+    z_cm = z_nm_w * 1e-7
+    sheet_num = float(np.trapz(p_cm3, z_cm))  # carriers/cm^2
+
+    abs_err = sheet_num - sheet_int
+    rel_err = abs_err / sheet_int if sheet_int != 0 else np.nan
+
+    out = dict(
+        run_dir=str(run_dir),
+        bias_dir=str(bias_dir),
+        z_window_nm=(lo, hi),
+        integrated_region_col=integrated_region_col,
+        sheet_from_integrated_cm2=sheet_int,
+        sheet_from_density_integral_cm2=sheet_num,
+        abs_error_cm2=abs_err,
+        rel_error=rel_err,
+        density_col=hole_col,
+        z_col=zcol,
+        n_points=int(mask.sum()),
+    )
+
+    if verbose:
+        print(f"Run: {run_dir.name}")
+        print(f"QW window: z ∈ [{lo}, {hi}] nm  (N={out['n_points']})")
+        print(f"Integrated file: {sheet_int:.6e} carriers/cm^2  ({integrated_region_col})")
+        print(f"Numerical ∫p(z)dz: {sheet_num:.6e} carriers/cm^2  (from {bias_folder}/{density_file})")
+        print(f"Abs error: {abs_err:.6e}  |  Rel error: {rel_err:.6e}")
+
+    return out
+
+def plot_quantum_occupation(
+    run_dir: str | Path,
+    region: str = "c-Ge_QW",
+    band: str = "HH",
+    bias_folder: str = "bias_00000",
+    yscale: str = "linear",
+):
+    """
+    Plot occupation.dat for a given quantum region/band.
+    Returns a Plotly figure.
+    """
+    run_dir = Path(run_dir)
+    occ_path = run_dir / bias_folder / "Quantum" / region / band / "occupation.dat"
+    df = read_dat(occ_path)
+
+    state_col = df.columns[0]
+    occ_col = next((c for c in df.columns if "Occupation" in c), df.columns[-1])
+
+    fig = go.Figure(go.Bar(
+        x=df[state_col],
+        y=df[occ_col],
+        name=occ_col
+    ))
+
+    fig.update_layout(
+        title=f"Quantum occupation ({band}, {region})",
+        xaxis_title=state_col,
+        yaxis_title=occ_col,
+        template="plotly_white",
+        height=500,
+    )
+    if yscale == "log":
+        fig.update_yaxes(type="log")
+
+    return fig
+
+
+def plot_quantum_density_1d(
+    run_dir: str | Path,
+    region: str = "c-Ge_QW",
+    band: str = "HH",
+    bias_folder: str = "bias_00000",
+    xlim=None,
+):
+    """
+    Plot 1D quantum density from density.dat for a given quantum region/band.
+    Returns a Plotly figure.
+    """
+    run_dir = Path(run_dir)
+    den_path = run_dir / bias_folder / "Quantum" / region / band / "density.dat"
+    df = read_dat(den_path)
+
+    xcol = df.columns[0]
+    ycol = df.columns[-1]
+
+    return plot_lines_df(
+        df,
+        xcol=xcol,
+        ycols=[ycol],
+        title=f"Quantum density ({band}, {region})",
+        y_label=ycol,
+        xlim=xlim,
+    )
+
+def plot_1d_electric_field(bias_dir: str | Path, xlim=None):
+    """
+    Plot electric_field.dat from a 1D run.
+    """
+    df = read_dat(Path(bias_dir) / "electric_field.dat")
+    return plot_lines_df(
+        df,
+        xcol=df.columns[0],
+        ycols=[df.columns[-1]],
+        title="Electric field (1D)",
+        y_label=df.columns[-1],
+        xlim=xlim,
+    )
+
+def plot_1d_summary_presentation(
+    run_dir: str | Path,
+    region: str = "c-Ge_QW",
+    band: str = "HH",
+    bias_folder: str = "bias_00000",
+    n_states: int = 2,
+    xlim=None,
+    density_zero_offset_ev: float = 0.1,
+):
+    """
+    Plot raw 1D QW quantities directly from nextnano output files, with presentation colors:
+      - HH: black
+      - LH: black dashed
+      - electron / hole Fermi levels: cyan
+      - E_1 / Psi^2_1: red
+      - E_2 / Psi^2_2: blue
+      - hole density: green (right axis)
+
+    Left y-axis: energies + raw Psi^2_i
+    Right y-axis: hole density, with density=0 aligned to (hole_Fermi_level - density_zero_offset_ev)
+    """
+    run_dir = Path(run_dir)
+    b0 = run_dir / bias_folder
+
+    # --- band edges ---
+    df_be = read_dat(b0 / "bandedges.dat")
+    xcol_be = df_be.columns[0]
+
+    # --- total hole density ---
+    df_den = read_dat(b0 / "density_hole.dat")
+    xcol_den = df_den.columns[0]
+    hole_col = next((c for c in df_den.columns if "Hole_density" in c), None)
+    if hole_col is None:
+        raise ValueError(f"No Hole_density column found in {b0 / 'density_hole.dat'}")
+
+    # --- probabilities / eigenenergies ---
+    prob_path = b0 / "Quantum" / region / band / "probabilities_shift_k00000.dat"
+    df_prob = read_dat(prob_path)
+    xcol_prob = df_prob.columns[0]
+
+    fig = go.Figure()
+
+    y1_vals = []
+
+    # HH and LH
+    if "HH[eV]" in df_be.columns:
+        y = df_be["HH[eV]"].to_numpy()
+        y1_vals.append(y)
+        fig.add_trace(go.Scatter(
+            x=df_be[xcol_be], y=y,
+            mode="lines", name="HH[eV]",
+            line=dict(color="black", width=2),
+            yaxis="y1"
+        ))
+
+    if "LH[eV]" in df_be.columns:
+        y = df_be["LH[eV]"].to_numpy()
+        y1_vals.append(y)
+        fig.add_trace(go.Scatter(
+            x=df_be[xcol_be], y=y,
+            mode="lines", name="LH[eV]",
+            line=dict(color="black", width=2, dash="dash"),
+            yaxis="y1"
+        ))
+
+    # Fermi levels (cyan)
+    for col, dash in [("electron_Fermi_level[eV]", "dot"), ("hole_Fermi_level[eV]", "solid")]:
+        if col in df_be.columns:
+            y = df_be[col].to_numpy()
+            y1_vals.append(y)
+            fig.add_trace(go.Scatter(
+                x=df_be[xcol_be], y=y,
+                mode="lines", name=col,
+                line=dict(color="cyan", width=2, dash=dash),
+                yaxis="y1"
+            ))
+
+    # Hole density on right axis (green)
+    density_vals = df_den[hole_col].to_numpy()
+    fig.add_trace(go.Scatter(
+        x=df_den[xcol_den], y=density_vals,
+        mode="lines", name=hole_col,
+        line=dict(color="green", width=2),
+        yaxis="y2"
+    ))
+
+    # State colors
+    state_colors = {
+        1: "red",
+        2: "blue",
+    }
+
+    # Raw eigenenergies + raw probabilities on same left axis
+    for i in range(1, n_states + 1):
+        color = state_colors.get(i, None)
+
+        ecol = f"E_{i}[eV]"
+        if ecol in df_prob.columns:
+            y = df_prob[ecol].to_numpy()
+            y1_vals.append(y)
+            fig.add_trace(go.Scatter(
+                x=df_prob[xcol_prob],
+                y=y,
+                mode="lines",
+                name=ecol,
+                line=dict(color=color, width=2, dash="dot") if color else dict(width=2, dash="dot"),
+                yaxis="y1"
+            ))
+
+        candidates = [
+            f"Psi^2_{i}[nm^-2]",
+            f"Psi^2_{i}[nm^-1]",
+            f"Psi^2_{i}",
+        ]
+        pcol = next((c for c in candidates if c in df_prob.columns), None)
+        if pcol is not None:
+            y = df_prob[pcol].to_numpy()
+            y1_vals.append(y)
+            fig.add_trace(go.Scatter(
+                x=df_prob[xcol_prob],
+                y=y,
+                mode="lines",
+                name=pcol,
+                line=dict(color=color, width=2) if color else dict(width=2),
+                yaxis="y1"
+            ))
+
+    # QW boundaries
+    for z0 in (-15.0, 0.0):
+        fig.add_vline(x=z0, line_width=2, line_dash="dot", line_color="gray")
+
+    # --- compute y1 range manually ---
+    y1_all = np.concatenate([np.asarray(v, dtype=float).ravel() for v in y1_vals])
+    y1_min = float(np.nanmin(y1_all))
+    y1_max = float(np.nanmax(y1_all))
+    y1_pad = 0.05 * (y1_max - y1_min + 1e-12)
+    y1_min_plot = y1_min - y1_pad
+    y1_max_plot = y1_max + y1_pad
+
+    # --- align density=0 to (hole_Fermi_level - density_zero_offset_ev) ---
+    if "hole_Fermi_level[eV]" in df_be.columns:
+        efh_ref = float(np.mean(df_be["hole_Fermi_level[eV]"].to_numpy()))
+    else:
+        efh_ref = y1_max
+
+    y_ref = efh_ref - density_zero_offset_ev
+    t = (y_ref - y1_min_plot) / (y1_max_plot - y1_min_plot)
+    t = min(max(t, 1e-6), 1 - 1e-6)  # keep safe
+
+    y2_max = float(np.nanmax(density_vals)) * 1.05 if np.nanmax(density_vals) > 0 else 1.0
+    y2_min = -t * y2_max / (1 - t)
+
+    fig.update_layout(
+        title=f"Raw 1D QW quantities ({band}, {region})",
+        xaxis_title="z (nm)",
+        yaxis=dict(
+            title="Energy (eV) + raw Psi²",
+            range=[y1_min_plot, y1_max_plot]
+        ),
+        yaxis2=dict(
+            title=hole_col,
+            overlaying="y",
+            side="right",
+            range=[y2_min, y2_max]
+        ),
+        template="plotly_white",
+        height=650,
+        legend=dict(itemclick="toggle", itemdoubleclick="toggleothers"),
+    )
+
+    if xlim is not None:
+        fig.update_xaxes(range=[xlim[0], xlim[1]])
+
+    return fig
+
+def plot_dat_file(path: str | Path, ycols: list[str] | None = None, title: str | None = None, xlim=None):
+    """
+    Generic helper: read a nextnano .dat file and plot selected columns vs the first column.
+    If ycols is None, all columns except the first are plotted.
+    """
+    path = Path(path)
+    df = read_dat(path)
+    xcol = df.columns[0]
+
+    if ycols is None:
+        ycols = list(df.columns[1:])
+
+    return plot_lines_df(
+        df,
+        xcol=xcol,
+        ycols=ycols,
+        title=title or path.name,
+        y_label="",
+        xlim=xlim,
+    )

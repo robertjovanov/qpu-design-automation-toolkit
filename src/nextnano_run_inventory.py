@@ -1,0 +1,539 @@
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+import re
+import xml.etree.ElementTree as ET
+import zipfile
+from xml.sax.saxutils import escape
+
+
+PREFIXES = [
+    "density_acceptor_ionized",
+    "density_donor_ionized",
+    "density_fixed_charge",
+    "density_acceptor",
+    "density_electron",
+    "density_hole",
+    "electric_field_norm",
+    "electric_field",
+    "strain_simulation",
+    "regions_material",
+    "regions_all",
+    "bandedges",
+    "potential",
+    "contacts",
+    "materials",
+    "grid_x",
+    "grid_y",
+    "grid_z",
+    "integrated_density_hole",
+    "contact_indices",
+    "material_indices",
+    "variables_input",
+    "variables_database",
+    "simulation_input",
+    "simulation_info",
+    "simulation_database",
+    "total_charges",
+    "bias_points",
+    "summary",
+    "job_done",
+]
+
+
+SECTION_DESCRIPTIONS = {
+    "1d_x_QD": "1D line cut along x in the QW plane",
+    "1d_y_PG1": "1D line cut along y at the PG1 x-position in the QW plane",
+    "1d_y_BG2": "1D line cut along y at the BG2 x-position in the QW plane",
+    "1d_y_PG2": "1D line cut along y at the PG2 x-position in the QW plane",
+    "1d_z_PG1": "1D vertical line cut at the PG1 center",
+    "1d_z_BG2": "1D vertical line cut at the BG2 center",
+    "1d_z_PG2": "1D vertical line cut at the PG2 center",
+    "2d_xy_QD": "2D xy section in the QW plane",
+    "2d_xz_QD": "2D xz section through y = 0",
+    "2d_yz_PG1": "2D yz section through the PG1 center",
+    "2d_yz_BG2": "2D yz section through the BG2 center",
+    "2d_yz_PG2": "2D yz section through the PG2 center",
+    "2d_xy_PG": "2D xy section through the plunger-gate layer",
+    "2d_xy_BG": "2D xy section through the barrier-gate layer",
+    "vtr": "full 3D rectilinear-grid output",
+}
+
+
+@dataclass(frozen=True)
+class FileMetadata:
+    relative_path: str
+    quantity: str
+    unit: str
+    physical_meaning: str
+    source_calculation: str
+    use_case: str
+
+
+def _read_text(path: Path, max_chars: int = 250_000) -> str:
+    return path.read_text(errors="ignore")[:max_chars]
+
+
+def _split_stem(stem: str) -> tuple[str, str | None]:
+    for prefix in PREFIXES:
+        if stem == prefix:
+            return prefix, None
+        if stem.startswith(prefix + "_"):
+            return prefix, stem[len(prefix) + 1 :]
+    return stem, None
+
+
+def _section_description(section: str | None, suffix: str) -> str:
+    if section and section in SECTION_DESCRIPTIONS:
+        return SECTION_DESCRIPTIONS[section]
+    if suffix == ".vtr":
+        return SECTION_DESCRIPTIONS["vtr"]
+    if section:
+        return f"section '{section}'"
+    return "run-level metadata file"
+
+
+def _parse_units(tokens: list[str]) -> str:
+    units: list[str] = []
+    for token in tokens:
+        units.extend(re.findall(r"\[([^\]]*)\]", token))
+    clean = [u if u else "dimensionless" for u in units]
+    clean = list(dict.fromkeys(clean))
+    if not clean:
+        return "not explicitly stated"
+    if len(clean) == 1:
+        return clean[0]
+    return " / ".join(clean)
+
+
+def _parse_fld_labels(path: Path) -> list[str]:
+    text = _read_text(path, max_chars=12_000)
+    return re.findall(r"^label\s*=\s*(.+?)\s*$", text, flags=re.MULTILINE)
+
+
+def _parse_dat_columns(path: Path) -> list[str]:
+    with path.open(errors="ignore") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                return re.split(r"\s+", stripped)
+    return []
+
+
+def _parse_vtr_names(path: Path) -> list[str]:
+    text = _read_text(path)
+    names = re.findall(r'Name\s*=\s*"([^"]+)"', text)
+    skip = {"X_COORDINATES", "Y_COORDINATES", "Z_COORDINATES"}
+    return [name for name in names if name not in skip]
+
+
+def _source_description(rel_path: Path, family: str) -> str:
+    parts = rel_path.parts
+    if rel_path.suffix == ".in":
+        return "User-authored nextnano input deck used to define the simulation."
+    if rel_path.suffix == ".log":
+        return "Text log written during run setup or solver execution."
+    if parts[0] == "Structure":
+        return "Derived from the structure/contact/material construction before solving Poisson."
+    if parts[0] == "Strain":
+        return "Produced by the strain solver from the heterostructure geometry and elastic material parameters."
+    if parts[0].startswith("bias_"):
+        if family in {"bandedges", "potential", "electric_field", "electric_field_norm",
+                      "density_hole", "density_electron", "density_acceptor_ionized", "density_donor_ionized",
+                      "total_charges"}:
+            return f"Produced at bias point '{parts[0]}' from the electrostatic carrier calculation."
+        return f"Produced at bias point '{parts[0]}' from the simulation post-processing."
+    if family in {"simulation_input", "variables_input", "variables_database", "simulation_database"}:
+        return "Generated by nextnano preprocessing / database expansion."
+    return "Generated as run metadata or bookkeeping for this simulation."
+
+
+def _quantity_template(family: str, labels: list[str], section_desc: str, suffix: str, path: Path) -> tuple[str, str]:
+    unit = _parse_units(labels)
+    label_text = ", ".join(labels[:8])
+    if len(labels) > 8:
+        label_text += ", ..."
+
+    if family == "contacts":
+        return f"Contact index map on {section_desc}.", "dimensionless contact index"
+    if family == "materials":
+        return f"Material index map on {section_desc}.", "dimensionless material index"
+    if family == "regions_all":
+        return f"All geometric-region indices on {section_desc}.", "dimensionless region index"
+    if family == "regions_material":
+        return f"Material-region indices on {section_desc}.", "dimensionless region index"
+    if family == "density_acceptor":
+        return f"Nominal acceptor dopant density on {section_desc}.", unit
+    if family == "density_fixed_charge":
+        return f"Fixed-charge density on {section_desc}.", unit
+    if family == "density_acceptor_ionized":
+        return f"Ionized acceptor density on {section_desc}.", unit
+    if family == "density_donor_ionized":
+        return f"Ionized donor density on {section_desc}.", unit
+    if family == "density_hole":
+        return f"Hole density on {section_desc}.", unit
+    if family == "density_electron":
+        return f"Electron density on {section_desc}.", unit
+    if family == "bandedges":
+        if labels:
+            return f"Band-edge energies and Fermi levels on {section_desc}: {label_text}.", unit
+        return f"Band-edge energies and Fermi levels on {section_desc}.", unit
+    if family == "potential":
+        return f"Electrostatic potential on {section_desc}.", unit
+    if family == "electric_field":
+        return f"Electric-field vector components on {section_desc}: {label_text}.", unit
+    if family == "electric_field_norm":
+        return f"Electric-field magnitude on {section_desc}.", unit
+    if family == "strain_simulation":
+        return f"Strain-tensor components on {section_desc}: {label_text}.", unit
+    if family in {"grid_x", "grid_y", "grid_z"}:
+        axis = family[-1]
+        return f"{axis}-axis mesh coordinates and grid indices.", _parse_units(labels)
+    if family == "integrated_density_hole":
+        return "Bias values plus integrated hole carrier counts over region(s).", _parse_units(labels)
+    if family == "contact_indices":
+        return "Lookup table mapping integer contact indices to contact names.", "dimensionless index"
+    if family == "material_indices":
+        return "Lookup table mapping integer material indices to material names.", "dimensionless index"
+    if family == "total_charges":
+        return "Integrated total charge by species for the solved bias point.", "elementary charge e"
+    if family == "variables_input":
+        return "Input-variable table used to parameterize the run.", "mixed"
+    if family == "variables_database":
+        return "Database-variable table after nextnano preprocessing.", "mixed"
+    if family == "simulation_input":
+        return "Fully expanded input deck used by the solver.", "text"
+    if family == "simulation_info":
+        return "Run metadata such as input path, output path, and execution setup.", "text"
+    if family == "simulation_database":
+        return "Resolved material/database parameters used in the simulation.", "mixed"
+    if family == "bias_points":
+        return "Bias-point bookkeeping log for the run or sweep.", "text"
+    if family == "summary":
+        return "High-level solver summary log.", "text"
+    if family == "job_done":
+        return "Completion marker for workflow automation.", "text"
+    if suffix == ".log":
+        return "Detailed solver log.", "text"
+    if suffix == ".in":
+        return "Original nextnano input deck.", "text"
+    if suffix == ".txt":
+        return "Plain-text metadata or summary file.", "mixed"
+    return f"Data stored in {path.suffix} format.", unit
+
+
+def _physical_meaning(family: str, section_desc: str) -> str:
+    mapping = {
+        "contacts": "An integer label telling which electrode/contact occupies each sampled position.",
+        "materials": "An integer label telling which material occupies each sampled position.",
+        "regions_all": "The full geometric-region assignment from the constructed device layout.",
+        "regions_material": "The material-region assignment used to build the device stack.",
+        "density_acceptor": "The prescribed acceptor dopant concentration before ionization is solved.",
+        "density_fixed_charge": "Spatially fixed charge that enters Poisson directly as a source term.",
+        "density_acceptor_ionized": "The acceptor population that is ionized and therefore contributes charge to Poisson.",
+        "density_donor_ionized": "The donor population that is ionized and therefore contributes charge to Poisson.",
+        "density_hole": "The local hole carrier concentration in the semiconductor.",
+        "density_electron": "The local electron carrier concentration in the semiconductor.",
+        "bandedges": "The local band landscape, including valence/conduction edges and Fermi levels.",
+        "potential": "The electrostatic potential that sets the carrier confinement landscape.",
+        "electric_field": "The electric-field vector, i.e. the spatial derivative of electrostatic potential.",
+        "electric_field_norm": "The magnitude of the electric field independent of direction.",
+        "strain_simulation": "The local strain tensor generated by lattice mismatch and elastic relaxation.",
+        "grid_x": "The x-axis mesh positions used for the numerical grid.",
+        "grid_y": "The y-axis mesh positions used for the numerical grid.",
+        "grid_z": "The z-axis mesh positions used for the numerical grid.",
+        "integrated_density_hole": "A bias-dependent integration of hole density over specified region(s).",
+        "contact_indices": "A legend needed to decode contact-index output files.",
+        "material_indices": "A legend needed to decode material-index output files.",
+        "total_charges": "Bias-point totals of charge carried by each species, summed over the simulated domain.",
+        "variables_input": "The symbolic input variables and their numerical values for this run.",
+        "variables_database": "Database-derived variables resolved during preprocessing.",
+        "simulation_input": "The exact solver input after variable substitution and expansion.",
+        "simulation_info": "Execution metadata describing where the run came from and where it wrote output.",
+        "simulation_database": "A record of material/database entries actually used by nextnano.",
+        "bias_points": "A bookkeeping record of bias points that were attempted or solved.",
+        "summary": "A human-readable summary of the run status or solver progress.",
+        "job_done": "A sentinel file that signals the run finished.",
+    }
+    base = mapping.get(family, "Simulation data or metadata stored for this run.")
+    if family in {"contacts", "materials", "regions_all", "regions_material",
+                  "density_acceptor", "density_fixed_charge", "density_acceptor_ionized",
+                  "density_donor_ionized", "density_hole", "density_electron", "bandedges",
+                  "potential", "electric_field", "electric_field_norm", "strain_simulation"}:
+        return f"{base} Here it is reported on {section_desc}."
+    return base
+
+
+def _use_case(family: str, suffix: str) -> str:
+    mapping = {
+        "contacts": "Use it to verify gate/contact placement, define electrode masks, and align analysis cuts with named electrodes.",
+        "materials": "Use it to identify layers and interfaces, isolate the Ge QW, and build material-dependent masks for post-processing.",
+        "regions_all": "Use it to debug geometric construction and to map output features back to named structure regions.",
+        "regions_material": "Use it to trace which material region a point belongs to and to cross-check the stack build.",
+        "density_acceptor": "Use it to inspect the imposed doping profile and compare intended dopants with the ionized dopant response.",
+        "density_fixed_charge": "Use it to quantify fixed electrostatic sources and estimate their effect on band bending.",
+        "density_acceptor_ionized": "Use it to evaluate how much dopant charge actually contributes to Poisson and to depletion/activation analysis.",
+        "density_donor_ionized": "Use it to evaluate donor activation and its contribution to the electrostatics.",
+        "density_hole": "Use it to locate accumulation, estimate dot occupancy by integration, and extract sheet/line densities on cuts.",
+        "density_electron": "Use it to check unwanted electron accumulation, leakage channels, or background compensation.",
+        "bandedges": "Use it to identify wells, barriers, saddle points, band offsets, and to estimate confinement and tunnel barriers.",
+        "potential": "Use it to inspect the electrostatic landscape, compute electric field by differentiation, and estimate lever arms/barrier shapes.",
+        "electric_field": "Use it to inspect field direction, derive forces on carriers, and identify high-field regions relevant to breakdown or tunneling.",
+        "electric_field_norm": "Use it to find field hotspots, compare dielectric stress, and quantify interface-field strength.",
+        "strain_simulation": "Use it to assess band-edge shifts from strain, validate heterostructure relaxation, and feed strain-aware band calculations.",
+        "grid_x": "Use it to inspect mesh spacing and assess whether the x-grid is fine enough for convergence.",
+        "grid_y": "Use it to inspect mesh spacing and assess whether the y-grid is fine enough for convergence.",
+        "grid_z": "Use it to inspect mesh spacing and assess whether the z-grid resolves thin layers and interfaces.",
+        "integrated_density_hole": "Use it to compare total hole count versus bias and to build charge-stability or threshold trends.",
+        "contact_indices": "Use it to decode integer-valued contact maps into named electrodes.",
+        "material_indices": "Use it to decode integer-valued material maps into material names.",
+        "total_charges": "Use it to check charge neutrality and quantify the total carrier population at a solved bias point.",
+        "variables_input": "Use it to reproduce or sweep the run by tracking the input parameters that were actually used.",
+        "variables_database": "Use it to audit resolved database values and compare parameter sets across runs.",
+        "simulation_input": "Use it to rerun the exact same case or diff it against edited input templates.",
+        "simulation_info": "Use it for provenance, path bookkeeping, and automation/debugging around the run.",
+        "simulation_database": "Use it to trace which database parameters fed the simulation and to audit material constants.",
+        "bias_points": "Use it to audit which bias points were attempted, converged, or written.",
+        "summary": "Use it as a quick health check for convergence and overall run status.",
+        "job_done": "Use it as a workflow sentinel for automation or batch orchestration.",
+    }
+    if suffix == ".in":
+        return "Use it to rerun the device, modify geometry/biases, or compare the original template against the expanded simulation_input.txt."
+    if suffix == ".log":
+        return "Use it to inspect convergence, runtime messages, warnings, and failure points in automated runs."
+    return mapping.get(family, "Use it as supporting simulation metadata or raw post-processing input.")
+
+
+def describe_file(path: Path, root: Path) -> FileMetadata:
+    rel_path = path.relative_to(root)
+    family, section = _split_stem(path.stem)
+    section_desc = _section_description(section, path.suffix)
+
+    labels: list[str] = []
+    if path.suffix == ".fld":
+        labels = _parse_fld_labels(path)
+    elif path.suffix == ".dat":
+        labels = _parse_dat_columns(path)
+    elif path.suffix == ".vtr":
+        labels = _parse_vtr_names(path)
+
+    quantity, unit = _quantity_template(family, labels, section_desc, path.suffix, path)
+    return FileMetadata(
+        relative_path=str(rel_path),
+        quantity=quantity,
+        unit=unit,
+        physical_meaning=_physical_meaning(family, section_desc),
+        source_calculation=_source_description(rel_path, family),
+        use_case=_use_case(family, path.suffix),
+    )
+
+
+def _col_name(index: int) -> str:
+    name = ""
+    while index:
+        index, rem = divmod(index - 1, 26)
+        name = chr(65 + rem) + name
+    return name
+
+
+def _sheet_xml(rows: list[list[str]]) -> str:
+    max_cols = max(len(row) for row in rows)
+    col_widths = []
+    for col_idx in range(max_cols):
+        width = max(len(str(row[col_idx])) if col_idx < len(row) else 0 for row in rows)
+        col_widths.append(min(max(width + 2, 14), 60))
+
+    cols_xml = "".join(
+        f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>'
+        for i, w in enumerate(col_widths, start=1)
+    )
+
+    row_xml_parts = []
+    for r_idx, row in enumerate(rows, start=1):
+        cells = []
+        style = "1" if r_idx == 1 else "2"
+        for c_idx, value in enumerate(row, start=1):
+            cell_ref = f"{_col_name(c_idx)}{r_idx}"
+            cell_text = escape(str(value))
+            cells.append(
+                f'<c r="{cell_ref}" t="inlineStr" s="{style}"><is><t xml:space="preserve">{cell_text}</t></is></c>'
+            )
+        row_xml_parts.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
+
+    auto_filter = f'A1:{_col_name(max_cols)}{len(rows)}'
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+      <selection pane="bottomLeft" activeCell="A2" sqref="A2"/>
+    </sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>{cols_xml}</cols>
+  <sheetData>
+    {"".join(row_xml_parts)}
+  </sheetData>
+  <autoFilter ref="{auto_filter}"/>
+</worksheet>
+"""
+
+
+def write_xlsx(rows: list[list[str]], output_path: Path) -> None:
+    created = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>
+""",
+        )
+        zf.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>
+""",
+        )
+        zf.writestr(
+            "xl/workbook.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Run Inventory" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>
+""",
+        )
+        zf.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>
+""",
+        )
+        zf.writestr(
+            "xl/styles.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><sz val="11"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><name val="Calibri"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDCE6F1"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="1">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="3">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">
+      <alignment horizontal="center" vertical="top" wrapText="1"/>
+    </xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">
+      <alignment vertical="top" wrapText="1"/>
+    </xf>
+  </cellXfs>
+</styleSheet>
+""",
+        )
+        zf.writestr("xl/worksheets/sheet1.xml", _sheet_xml(rows))
+        zf.writestr(
+            "docProps/app.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+            xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>OpenAI Codex</Application>
+</Properties>
+""",
+        )
+        zf.writestr(
+            "docProps/core.xml",
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+                   xmlns:dc="http://purl.org/dc/elements/1.1/"
+                   xmlns:dcterms="http://purl.org/dc/terms/"
+                   xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:creator>OpenAI Codex</dc:creator>
+  <cp:lastModifiedBy>OpenAI Codex</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{created}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{created}</dcterms:modified>
+</cp:coreProperties>
+""",
+        )
+
+
+def build_inventory(run_root: Path, exclude: set[Path] | None = None) -> list[FileMetadata]:
+    exclude = {p.resolve() for p in (exclude or set())}
+    files = sorted(p for p in run_root.rglob("*") if p.is_file() and p.resolve() not in exclude)
+    return [describe_file(path, run_root) for path in files]
+
+
+def rows_from_inventory(items: list[FileMetadata]) -> list[list[str]]:
+    rows = [[
+        "file_name",
+        "quantity",
+        "unit",
+        "what_it_represents_physically",
+        "from_which_calculation_does_it_come",
+        "what_it_can_be_used_for",
+    ]]
+    for item in items:
+        rows.append([
+            item.relative_path,
+            item.quantity,
+            item.unit,
+            item.physical_meaning,
+            item.source_calculation,
+            item.use_case,
+        ])
+    return rows
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Create an Excel inventory for a nextnano run folder.")
+    parser.add_argument("run_root", type=Path, help="Path to the nextnano run folder.")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output .xlsx path. Defaults to <run_root>/<run_root.name>_file_inventory.xlsx",
+    )
+    args = parser.parse_args()
+
+    run_root = args.run_root.resolve()
+    output = args.output or (run_root / f"{run_root.name}_file_inventory.xlsx")
+
+    inventory = build_inventory(run_root, exclude={output})
+    rows = rows_from_inventory(inventory)
+    write_xlsx(rows, output)
+    print(f"Wrote {len(inventory)} rows to {output}")
+
+
+if __name__ == "__main__":
+    main()

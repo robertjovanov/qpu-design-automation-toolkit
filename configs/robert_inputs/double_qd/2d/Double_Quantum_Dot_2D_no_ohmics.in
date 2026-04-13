@@ -142,14 +142,7 @@ $dz_oxide_gates_medium = 2 # (nm) grid resolution in the growth direction - in t
 #--- device ---
 # Explicit left-to-right construction of the serial double-dot chain.
 
-$x_domain_left = 0.0
-
-$x_Source_left = $x_domain_left
-$x_Source_right = $x_Source_left + $Lx_Source
-$x_Source_center = 0.5*($x_Source_left + $x_Source_right)
-$x_Source_bottom = $x_Source_left + $Lx_OC_bottom
-
-$x_BG1_left = $x_Source_right + $Lx_Source_BG1
+$x_BG1_left = 150
 $x_BG1_right = $x_BG1_left + $Lx_BG1
 $x_BG1_center = 0.5*($x_BG1_left + $x_BG1_right)
 
@@ -169,12 +162,8 @@ $x_BG3_left = $x_PG2_right + $Lx_PG2_BG3
 $x_BG3_right = $x_BG3_left + $Lx_BG3
 $x_BG3_center = 0.5*($x_BG3_left + $x_BG3_right)
 
-$x_Drain_left = $x_BG3_right + $Lx_BG3_Drain
-$x_Drain_right = $x_Drain_left + $Lx_Drain
-$x_Drain_center = 0.5*($x_Drain_left + $x_Drain_right)
-$x_Drain_bottom = $x_Drain_right - $Lx_OC_bottom
-
-$x_domain_right = $x_Drain_right
+$x_domain_left = $x_BG1_left - $Lx_GRID_margin
+$x_domain_right = $x_BG3_right + $Lx_GRID_margin
 
 $z_SiGe_buffer = $Lz_SiGe_buffer
 $z_GeQW = $Lz_SiGe_buffer + $Lz_Ge_QW
@@ -267,8 +256,8 @@ contacts{
     schottky{ name = BG2        bias = 0       work_function = $work_function_Gate - $V_BG2 }
     schottky{ name = PG2        bias = 0       work_function = $work_function_Gate - $V_PG2 }
     schottky{ name = BG3        bias = 0       work_function = $work_function_Gate - $V_BG3 }
-    schottky{ name = Source     bias = 0       work_function = $work_function_OC - $V_source }
-    schottky{ name = Drain      bias = 0       work_function = $work_function_OC - $V_drain}
+    # schottky{ name = Source     bias = 0       work_function = $work_function_OC - $V_source }
+    # schottky{ name = Drain      bias = 0       work_function = $work_function_OC - $V_drain}
     ohmic{    name = Body       bias = 0.0          shift = 0.0 }
 }
 
@@ -333,24 +322,6 @@ structure{
             y = [$z_Ge_cap, $z_PG_end]
        }
         binary{ name = Sapphire_zb }
-    }
-
-    # Source
-    region{
-        rectangle{ 
-            x = [$x_Source_left, $x_Source_right]                                
-            y = [$z_OC, $z_PG_end] 
-        }
-        contact{ name = "Source"}
-    }
-
-    # Drain
-    region{                         
-        rectangle{ 
-            x = [$x_Drain_left, $x_Drain_right]
-            y = [$z_OC, $z_PG_end]  
-        }
-        contact{ name = "Drain"}
     }
 
     # Barrier gate 1
@@ -420,10 +391,8 @@ structure{
 grid{ 
     xgrid{
         line{ pos = $x_domain_left                    spacing = $dx }
-        line{ pos = $x_Source_bottom                  spacing = $dx_QD }
-        line{ pos = $x_Source_right                   spacing = $dx_coarse }
 
-        line{ pos = $x_GRID_left                      spacing = $dx_coarse }
+        line{ pos = $x_GRID_left                      spacing = $dx }
 
         line{ pos = $x_QR_left                        spacing = $dx_QD }
         line{ pos = $x_BG1_left                       spacing = $dx_QD }
@@ -447,10 +416,8 @@ grid{
         line{ pos = $x_BG3_right                      spacing = $dx_QD }
         line{ pos = $x_QR_right                       spacing = $dx_QD }
 
-        line{ pos = $x_GRID_right                     spacing = $dx_coarse }
+        line{ pos = $x_GRID_right                     spacing = $dx }
 
-        line{ pos = $x_Drain_left                     spacing = $dx_coarse }
-        line{ pos = $x_Drain_bottom                   spacing = $dx_QD }
         line{ pos = $x_domain_right                   spacing = $dx }
     }
     ygrid{
@@ -460,7 +427,6 @@ grid{
         # Substrate and buffers 
         line{ pos = 0.0                             spacing = $dz_buffer_coarse }
         line{ pos = $z_GRID_medium                  spacing = $dz_buffer_medium }
-        line{ pos = $z_OC                           spacing = $dz_buffer_fine } 
     
         # Modulation doping in the buffer   
         line{ pos = $z_MD_buffer_start              spacing = $dz_MD_fine }

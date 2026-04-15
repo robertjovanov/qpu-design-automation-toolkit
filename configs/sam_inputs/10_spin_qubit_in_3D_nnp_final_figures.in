@@ -1,0 +1,994 @@
+!TEXT
+    =========================================================================================================================
+    This input file is provided to you by nextnano GmbH (https://www.nextnano.com).
+    The last revision of this input file was done on 2025-03-07.
+    =========================================================================================================================
+!ENDTEXT
+
+###################################
+##### DESIGNING THE STRUCTURE #####
+###################################
+
+#depth of all layers in nm
+
+#$DHG_depth = 16
+#$Sacrificial_barrier_depth = 55
+#$oxide_layer = 7
+#$barrier_gate_stack_depth = 20
+#$screening_gate_depth = 30
+#$plunger_layer_depth = 40
+
+
+#tries
+$DHG_depth = 16
+$Sacrificial_barrier_depth = 55
+$oxide_layer = 7
+$barrier_gate_stack_depth = 10
+$screening_gate_depth = 10
+$plunger_layer_depth = 30
+
+
+
+#layer after barriers and plungers
+$general_oxide_layer = 5
+
+
+#defining layer locations
+$begin_sacrificial = 16
+$begin_first_oxide = $begin_sacrificial + $Sacrificial_barrier_depth
+$begin_barrier_gate = $begin_first_oxide + $oxide_layer
+$begin_second_oxide = $begin_barrier_gate + $barrier_gate_stack_depth
+$begin_screening_depth = $begin_second_oxide + $general_oxide_layer
+$begin_third_oxide = $begin_screening_depth + $screening_gate_depth
+$begin_plunger_layer = $begin_third_oxide + $general_oxide_layer
+
+
+#defining geometries in device
+$circle_radius = 250     #diameter of the circle used to simulate dots
+$square_length = 100
+$gap_dots_middle = 300
+$sensor_dot_ellipse_x = 200
+$sensor_dot_ellipse_y = 300
+
+
+#defining wires
+#$wire_width = sqrt(($gap_dots_middle / 2 + $circle_radius / 2)*($gap_dots_middle / 2 + $circle_radius / 2) * 2) - $circle_radius
+$wire_width = 70
+
+#defining NS
+$start_sensor_n_x = - $sensor_dot_ellipse_x / 2
+$end_sensor_n_x = $start_sensor_n_x + $sensor_dot_ellipse_x
+$start_sensor_n_y = $gap_dots_middle / 2 + $circle_radius + $square_length
+$end_sensor_n_y = $start_sensor_n_y + $sensor_dot_ellipse_y 
+
+#screening NS
+$begin_square_NS_y = $gap_dots_middle / 2 + $circle_radius
+
+#p_2
+$begin_P_2_x = -$circle_radius /2
+$end_P_2_x = $begin_P_2_x + $circle_radius
+$begin_P_2_y = $gap_dots_middle / 2
+$end_P_2_y = $begin_P_2_y + $circle_radius
+
+#P6
+$begin_P_6_x = $gap_dots_middle / 2
+$end_P_6_x = $begin_P_6_x + $circle_radius
+$begin_P_6_Y = -$circle_radius / 2
+$end_P_6_Y = $begin_P_6_Y + $circle_radius
+
+#P5
+$begin_P_5_x = -$gap_dots_middle / 2 - $circle_radius
+$end_P_5_x = - $gap_dots_middle / 2
+$begin_P_5_Y = -$circle_radius / 2
+$end_P_5_Y = $begin_P_5_Y + $circle_radius
+
+
+#P9
+$begin_P_9_x = -$circle_radius / 2
+$end_P_9_x = $begin_P_9_x + $circle_radius
+$begin_P_9_Y = -$gap_dots_middle / 2 - $circle_radius
+$end_P_9_Y = $begin_P_9_Y + $circle_radius
+
+#screening SS
+$begin_square_SS_y = - $gap_dots_middle / 2 - $circle_radius - $square_length
+
+#SP
+$start_sensor_s_x = - $sensor_dot_ellipse_x / 2
+$end_sensor_s_x = $start_sensor_s_x + $sensor_dot_ellipse_x
+$start_sensor_s_y = -$gap_dots_middle / 2 - $circle_radius - $square_length - $sensor_dot_ellipse_y 
+$end_sensor_s_y = $start_sensor_s_y + $sensor_dot_ellipse_y
+
+
+
+
+#size of device
+
+$min_x =  $begin_P_5_x - 20
+$max_x =  $end_P_6_x + 20
+$min_y =  $start_sensor_s_y - 20
+$max_y =  $end_sensor_n_y + 20
+
+
+
+#control
+$quantum_iterations = 10
+$CRes = 1
+
+run{                 
+    poisson{ }
+    
+    #quantum_poisson{ 
+    #    iterations = $quantum_iterations
+    #    residual   = $CRes
+    #}
+}
+
+global{                         # this group is required in every input file
+    temperature =  0.3          # set temperature (required)
+    simulate3D{ }               # choose beween 1D, 2D or 3D simulation
+    substrate{ name = "Ge" }  # substrate material (required)
+    crystal_zb{                 # crystal orientation - cubic [001] axis along x axis
+        x_hkl = [0, 0, 1]       # specify (hkl) plane perpendicular to x axis: (001)
+        y_hkl = [1, 0, 0]       # specify (hkl) plane perpendicular to y axis: (100)
+        # z-axis is determined from x-axis and y-axis
+    }
+}
+
+contacts{ 
+$Barrier_FG = 3.6
+
+$BiasP2 = -1.8
+$BiasP6 = -2.4
+
+
+
+#$BiasP2 = -0.55
+$BiasP5 = -0.1
+
+#$BiasP6 = -0.47
+$BiasP9 = -0.4
+$BiasNS = -0.1
+$BiasSS = -0.3
+$BiasNP = -1.1755
+#$BiasNP = -0.5
+$BiasSP = -0.6
+#$BiasSP = -0.2
+$BiasNWSC = 0.1
+$BiasNESC = 0.1
+$BiasB10 = -0.2
+$BiasB3 = -0.075
+$BiasB4 = -0.18
+$BiasB9 = -0.075
+$BiasSESC = 0.25
+$BiasSWSC = 0.25
+$BiasNBR = -0.193
+$BiasNBL = -0.225
+$BiasSBL = -0.6
+$BiasSBR = -0.6
+
+
+schottky{name = "P2" bias =$BiasP2 barrier = $Barrier_FG - $BiasP2}
+schottky{name = "P_2_1" bias =$BiasP2 barrier = $Barrier_FG - $BiasP2} 
+schottky{name = "P_2_2" bias =$BiasP2 barrier = $Barrier_FG - $BiasP2}                  
+schottky{name = "P_2_3" bias =$BiasP2 barrier = $Barrier_FG - $BiasP2}                  
+                 
+schottky{name = "P6" bias =$BiasP6 barrier = $Barrier_FG - $BiasP6}
+schottky{name = "P_6_1" bias =$BiasP6 barrier = $Barrier_FG - $BiasP6}
+schottky{name = "P_6_2" bias =$BiasP6 barrier = $Barrier_FG - $BiasP6}
+
+schottky{name = "P5" bias =$BiasP5 barrier = $Barrier_FG - $BiasP5}
+schottky{name = "P_5_1" bias =$BiasP5 barrier = $Barrier_FG - $BiasP5}
+schottky{name = "P_5_2" bias =$BiasP5 barrier = $Barrier_FG - $BiasP5}
+
+
+schottky{name = "P9" bias =$BiasP9 barrier = $Barrier_FG - $BiasP9}
+schottky{name = "P_9_1" bias =$BiasP9 barrier = $Barrier_FG - $BiasP9}
+schottky{name = "P_9_2" bias =$BiasP9 barrier = $Barrier_FG - $BiasP9}
+schottky{name = "P_9_3" bias =$BiasP9 barrier = $Barrier_FG - $BiasP9}
+
+schottky{name = "SS" bias =$BiasSS barrier = $Barrier_FG - $BiasSS}
+schottky{name = "SS_1" bias =$BiasSS barrier = $Barrier_FG - $BiasSS}
+
+schottky{name = "NS" bias =$BiasNS barrier = $Barrier_FG - $BiasNS}
+schottky{name = "NS_1" bias =$BiasNS barrier = $Barrier_FG - $BiasNS}
+
+schottky{name = "NP" bias =$BiasNP barrier = $Barrier_FG - $BiasNP}
+schottky{name = "SP" bias =$BiasSP barrier = $Barrier_FG - $BiasSP}
+
+
+schottky{name = "NWSC_1" bias =$BiasNWSC barrier = $Barrier_FG - $BiasNWSC}
+schottky{name = "NWSC_2" bias =$BiasNWSC barrier = $Barrier_FG - $BiasNWSC}
+
+schottky{name = "SESC_1" bias =$BiasSESC barrier = $Barrier_FG - $BiasSESC}
+schottky{name = "SESC_2" bias =$BiasSESC barrier = $Barrier_FG - $BiasSESC}
+
+schottky{name = "NESC_1" bias =$BiasNESC barrier = $Barrier_FG - $BiasNESC}
+schottky{name = "NESC_2" bias =$BiasNESC barrier = $Barrier_FG - $BiasNESC}
+
+schottky{name = "SWSC_1" bias =$BiasSWSC barrier = $Barrier_FG - $BiasSWSC}
+schottky{name = "SWSC_2" bias =$BiasSWSC barrier = $Barrier_FG - $BiasSWSC}
+
+
+schottky{name = "B4_1" bias =$BiasB4 barrier = $Barrier_FG - $BiasB4}
+schottky{name = "B4_2" bias =$BiasB4 barrier = $Barrier_FG - $BiasB4}
+schottky{name = "B4_3" bias =$BiasB4 barrier = $Barrier_FG - $BiasB4}
+
+schottky{name = "B3_1" bias =$BiasB3 barrier = $Barrier_FG - $BiasB3}
+schottky{name = "B3_2" bias =$BiasB3 barrier = $Barrier_FG - $BiasB3}
+schottky{name = "B3_3" bias =$BiasB3 barrier = $Barrier_FG - $BiasB3}
+
+schottky{name = "B9_1" bias =$BiasB9 barrier = $Barrier_FG - $BiasB9}
+schottky{name = "B9_2" bias =$BiasB9 barrier = $Barrier_FG - $BiasB9}
+schottky{name = "B9_3" bias =$BiasB9 barrier = $Barrier_FG - $BiasB9}
+
+schottky{name = "B10_1" bias =$BiasB10 barrier = $Barrier_FG - $BiasB10}
+schottky{name = "B10_2" bias =$BiasB10 barrier = $Barrier_FG - $BiasB10}
+schottky{name = "B10_3" bias =$BiasB10 barrier = $Barrier_FG - $BiasB10}
+
+schottky{name = "NBR" bias =$BiasNBR barrier = $Barrier_FG - $BiasNBR}
+schottky{name = "NBL" bias =$BiasNBL barrier = $Barrier_FG - $BiasNBL}
+schottky{name = "SBR" bias =$BiasSBR barrier = $Barrier_FG - $BiasSBR}
+schottky{name = "SBL" bias =$BiasSBL barrier = $Barrier_FG - $BiasSBL}
+
+
+
+
+
+
+
+}
+output{
+    format2D = "Origin"
+    section2D{name = "DHG"  
+    z = $DHG_depth
+    range_x = [$min_x, $max_x]       # (optional) range in x direction [nm]
+    range_y = [$start_sensor_s_y + 30, $end_sensor_n_y - 30]
+    }
+    section1D{ name = "P2"
+    x = 28
+    range_y = [$begin_P_2_y, $end_P_2_y]
+    z = $DHG_depth 
+    }
+
+    section1D{ name = "P6"
+    range_x = [$begin_P_6_x - 20, $end_P_6_x]
+    y = -28
+    z = $DHG_depth
+    }
+
+    section2D{
+        name = "P_6"         # name of section enters file name
+        z = $DHG_depth - 1
+        range_x = [$begin_P_6_x - 80, $end_P_6_x - 80]       # (optional) range in x direction [nm]
+        range_y = [$begin_P_6_Y, $end_P_6_Y]       # (optional) range in y direction [nm]
+    }
+    section2D{
+        name = "P_2"         # name of section enters file name
+        z = $DHG_depth - 1
+        range_x = [$begin_P_2_x, $end_P_2_x]       # (optional) range in x direction [nm]
+        range_y = [$begin_P_2_y, $end_P_2_y]       # (optional) range in y direction [nm]
+    }
+
+
+}
+
+
+
+structure{                                                                  # this group is required in every input file
+    output_material_index{ }
+    output_region_index{ }
+    output_contact_index{ }
+    
+
+    #defining layers of device
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [0, $begin_sacrificial]}
+        ternary_constant{ 
+            name = "Si(x)Ge(1-x)"
+            alloy_x = 0.3
+        }
+       }
+
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [$begin_sacrificial, $begin_sacrificial + $Sacrificial_barrier_depth]}
+        binary{ 
+            name = "Ge"
+        }
+     }
+
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [$begin_first_oxide, $begin_first_oxide + $oxide_layer]}
+        binary{ 
+            name = "SiO2"
+        }
+    }
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]}
+        binary{ 
+            name = "Si"
+        }
+    }
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [$begin_second_oxide, $begin_second_oxide + $general_oxide_layer]}
+        binary{ 
+            name = "SiO2"
+        }
+    }
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]}
+        binary{ 
+            name = "Si"
+        }
+    }
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [$begin_third_oxide, $begin_third_oxide + $general_oxide_layer]}
+        binary{ 
+            name = "SiO2"
+        }
+    }
+    region{
+        cuboid{ x = [ $min_x, $max_x] y = [ $min_y, $max_y] z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]}
+        binary{ 
+            name = "Si"
+        }
+
+    }
+
+    #REGIONS FOR THE SILICON
+
+
+    #NP
+    region{
+        cone{
+            base_x = [$start_sensor_n_x, $end_sensor_n_x] 
+            base_y = [$start_sensor_n_y, $end_sensor_n_y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer]
+            top = [$start_sensor_n_x + $sensor_dot_ellipse_x / 2, $start_sensor_n_y + $sensor_dot_ellipse_y / 2, $begin_plunger_layer + $plunger_layer_depth]
+            diminution = 1
+     }   
+        binary{ name = "SiO2" }                                    
+        contact{ name = "NP" }                                     
+    }
+    #NS screening square
+    region{                                   
+        cuboid{ x = [ - $square_length / 2, $square_length / 2 ] y = [ $begin_square_NS_y, $begin_square_NS_y + $square_length ] z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth] } 
+        binary{ name = "SiO2"} 
+        contact{ name = "NS"} 
+    }
+    
+    #P2
+    region{
+        cone{
+            base_x = [$begin_P_2_x, $end_P_2_x]
+            base_y = [ $begin_P_2_y, $end_P_2_y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer]
+            top = [$begin_P_2_x + $circle_radius / 2, $end_P_2_y - $circle_radius / 2 , $begin_plunger_layer + $plunger_layer_depth]
+            diminution = 1   #cilinder
+       }
+           binary {name = "SiO2"}
+            contact{ name = "P2" }
+    }
+
+    #P5
+    region{
+        cone{
+            base_x = [$begin_P_5_x, $end_P_5_x]
+            base_y = [ $begin_P_5_Y, $end_P_5_Y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer]
+            top = [$begin_P_5_x + $circle_radius / 2, $end_P_5_Y - $circle_radius / 2 , $begin_plunger_layer + $plunger_layer_depth]
+            diminution = 1   #cilinder
+       }
+           binary {name = "SiO2"}
+            contact{ name = "P5" }
+    }
+
+
+    #P6
+    region{
+        cone{
+            base_x = [$begin_P_6_x, $end_P_6_x]
+            base_y = [ $begin_P_6_Y, $end_P_6_Y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer]
+            top = [$begin_P_6_x + $circle_radius / 2, $end_P_6_Y - $circle_radius / 2 , $begin_plunger_layer + $plunger_layer_depth]
+            diminution = 1   #cilinder
+       }
+           binary {name = "SiO2"}
+            contact{ name = "P6" }
+    }
+
+
+    #P9
+    region{
+        cone{
+            base_x = [$begin_P_9_x, $end_P_9_x]
+            base_y = [ $begin_P_9_Y, $end_P_9_Y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer]
+            top = [$begin_P_9_x + $circle_radius / 2, $end_P_9_Y - $circle_radius / 2 , $begin_plunger_layer + $plunger_layer_depth]
+            diminution = 1   #cilinder
+       }
+           binary {name = "Si"}
+            contact{ name = "P9" }
+    }
+
+    #SP
+    region{
+        cone{
+            base_x = [$start_sensor_s_x, $end_sensor_s_x] 
+            base_y = [$start_sensor_s_y, $end_sensor_s_y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer]
+            top = [$start_sensor_s_x + $sensor_dot_ellipse_x / 2, $start_sensor_s_y + $sensor_dot_ellipse_y / 2, $begin_plunger_layer + $plunger_layer_depth]
+            diminution = 1
+     }   
+        binary{ name = "Si" }                                    
+        contact{ name = "SP" }
+
+    }
+    #SS screening square
+    region{                                   
+        cuboid{ x = [ - $square_length / 2, $square_length / 2 ] y = [ $begin_square_SS_y, $begin_square_SS_y + $square_length ] z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth] } 
+        contact{ name = "SS"}
+        binary { name = "Si" }
+    }
+    
+    #P_6 wire_1
+    region{                                  
+        cuboid{ x = [ $begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2 ] y = [ $end_P_6_Y - 10, $begin_square_NS_y] z = [ $begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth ] } 
+        binary{ name = "Si"}
+        contact{ name = "P_6_1"}
+    }
+
+    #P_6 wire _2
+    region{
+        obelisk{
+            base_x = [$begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2]
+            base_y = [$begin_square_NS_y, $begin_square_NS_y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer + $begin_plunger_layer]
+            top_x = [$max_x, $max_x + $wire_width]
+            top_y = [$begin_square_NS_y + $max_x - ($begin_P_6_x + $circle_radius /2 - $wire_width / 2),$begin_square_NS_y + $max_x - ($begin_P_6_x + $circle_radius /2 - $wire_width / 2)] #getting 45 degree angle
+            top_z = [$begin_plunger_layer, $begin_plunger_layer + $begin_plunger_layer] 
+            }
+        binary{name = "Si"}
+        contact{ name = "P_6_2"}
+    }
+
+    #P_5 wire_1
+    region{                                  
+        cuboid{ x = [ $end_P_5_x - $circle_radius / 2 + $wire_width / 2, $end_P_5_x - $circle_radius / 2 - $wire_width / 2 ] y = [ $begin_P_5_Y + 20, $begin_square_SS_y + $square_length] z = [ $begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth ] } 
+        binary{ name = "Si"}
+        contact{ name = "P_5_1" }
+    }
+
+    #P_5 wire _2
+    region{
+        obelisk{
+            base_x = [$end_P_5_x - $circle_radius / 2 + $wire_width / 2, $end_P_5_x - $circle_radius / 2 - $wire_width / 2]
+            base_y = [$begin_square_SS_y + $square_length, $begin_square_SS_y + $square_length]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer + $begin_plunger_layer]
+            top_x = [$min_x, $min_x - $wire_width]
+            top_y = [$begin_square_SS_y + ($min_x - ($end_P_5_x - $circle_radius /2 + $wire_width / 2)),$begin_square_SS_y + ($min_x - ($end_P_5_x - $circle_radius /2 + $wire_width / 2))]   #getting 45 degree angle
+            top_z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth] 
+            }
+        binary{name = "Si"}  
+        contact{ name = "P_5_2"}
+    }
+
+    #P_2 wire_1
+    region{
+        cuboid{ x = [$begin_P_5_x + $circle_radius / 2 - $wire_width / 2, $begin_P_2_x + 20] 
+                y = [$begin_P_2_y + $circle_radius / 2 - $wire_width / 2, $begin_P_2_y + $circle_radius / 2 + $wire_width / 2] 
+                z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+        }
+        binary { name = "Si"}
+        contact{ name = "P_2_1"}
+    }
+
+    #P_2 wire_2
+    region{
+        cuboid{ x = [$begin_P_5_x + $circle_radius / 2 - $wire_width / 2, $begin_P_5_x + $circle_radius / 2 + $wire_width / 2]
+                y = [$begin_P_2_y + $circle_radius / 2 + $wire_width / 2, $begin_square_NS_y]
+                z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+        }
+        binary { name = "Si"}
+        contact{ name = "P_2_2"}
+    }
+    
+    #P_2 wire_3
+    region{
+        obelisk{
+            base_x = [$begin_P_5_x + $circle_radius / 2 - $wire_width / 2, $begin_P_5_x + $circle_radius / 2 + $wire_width / 2]
+            base_y = [$begin_square_NS_y,$begin_square_NS_y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+            top_x = [$min_x, $min_x - $wire_width]
+            top_y = [$begin_square_NS_y - ($min_x - ($begin_P_5_x + $circle_radius / 2 + $wire_width / 2)), $begin_square_NS_y - ($min_x - ($begin_P_5_x + $circle_radius / 2 + $wire_width / 2))]
+            top_z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+            
+        }
+        binary {name = Si}
+        contact{ name = "P_2_3"}
+    }
+    #P_9 wire_1
+    region{
+        cuboid{ x = [$begin_P_6_x + $circle_radius / 2 + $wire_width / 2, $end_P_9_x - 20] 
+                y = [$begin_P_9_Y + $circle_radius / 2 - $wire_width / 2, $begin_P_9_Y + $circle_radius / 2 + $wire_width / 2] 
+                z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+        }
+        binary { name = "Si"}
+        contact{ name = "P_9_1"}
+    }
+
+    #P_9 wire_2
+    region{
+        cuboid{ x = [$begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2]
+                y = [$begin_P_9_Y + $circle_radius / 2 + $wire_width / 2, $begin_square_SS_y]
+                z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+        }
+        binary { name = "Si"}
+        contact{ name = "P_9_2"}
+
+    }
+    
+    #P_9 wire_3
+    region{
+        obelisk{
+            base_x = [$begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2]
+            base_y = [$begin_square_SS_y, $begin_square_SS_y]
+            base_z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+            top_x = [$max_x, $max_x + $wire_width]
+            top_y = [$begin_square_SS_y - ($max_x - ($begin_P_6_x + $circle_radius / 2 - $wire_width / 2)), $begin_square_SS_y - ($max_x - ($begin_P_6_x + $circle_radius / 2 - $wire_width / 2))]
+            top_z = [$begin_plunger_layer, $begin_plunger_layer + $plunger_layer_depth]
+            
+        }
+        binary {name = Si}
+        contact{ name = "P_9_3"}
+
+    }
+
+    #NS wire
+    region{
+        obelisk{
+            base_x = [$square_length / 2, $square_length / 2]
+            base_y = [$begin_square_NS_y, $begin_square_NS_y + $square_length]
+            base_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+            top_x = [$max_x, $max_x]
+            top_y = [$begin_square_NS_y + $max_x - $square_length / 2, $begin_square_NS_y + $max_x + $square_length / 2]
+            top_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+    }
+        binary {name = "Si"}
+        contact{ name = "NS_1"}
+
+    }
+
+    #SS wire
+    region{
+        obelisk{
+            base_x = [ - $square_length / 2, - $square_length / 2]
+            base_y = [$begin_square_SS_y, $begin_square_SS_y + $square_length]
+            base_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+            top_x = [$min_x, $min_x]
+            top_y = [$begin_square_SS_y + $min_x + $square_length / 2, $begin_square_SS_y + $min_x + $square_length + $square_length / 2]
+            top_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+    }
+        binary {name = "Si"}
+        contact{ name = "SS_1"}
+
+    }
+
+    
+    #SESC wire_1
+    region{
+        cuboid{ x = [$begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2]
+                y = [$begin_P_9_Y + $circle_radius / 2 + $wire_width / 2, $begin_square_SS_y]
+                z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "SESC_1"}
+
+    }
+    
+    #SESC wire_2
+    region{
+        obelisk{
+            base_x = [$begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2]
+            base_y = [$begin_square_SS_y, $begin_square_SS_y]
+            base_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+            top_x = [$max_x, $max_x + $wire_width]
+            top_y = [$begin_square_SS_y - ($max_x - ($begin_P_6_x + $circle_radius / 2 - $wire_width / 2)), $begin_square_SS_y - ($max_x - ($begin_P_6_x + $circle_radius / 2 - $wire_width / 2))]
+            top_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+            
+        }
+        binary {name = SiO2}
+        contact{ name = "SESC_2"}
+
+    }
+   #NWSC wire_1
+    region{
+        cuboid{ x = [$begin_P_5_x + $circle_radius / 2 - $wire_width / 2, $begin_P_5_x + $circle_radius / 2 + $wire_width / 2]
+                y = [$begin_P_2_y + $circle_radius / 2 - $wire_width / 2, $begin_square_NS_y]
+                z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "NWSC_1"}
+
+    }
+    
+    #NWSC wire_2
+    region{
+        obelisk{
+            base_x = [$begin_P_5_x + $circle_radius / 2 - $wire_width / 2, $begin_P_5_x + $circle_radius / 2 + $wire_width / 2]
+            base_y = [$begin_square_NS_y ,$begin_square_NS_y]
+            base_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+            top_x = [$min_x, $min_x - $wire_width]
+            top_y = [$begin_square_NS_y - ($min_x - ($begin_P_5_x + $circle_radius / 2 + $wire_width / 2)), $begin_square_NS_y - ($min_x - ($begin_P_5_x + $circle_radius / 2 + $wire_width / 2))]
+            top_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+            
+        }
+        binary {name = SiO2}
+        contact{ name = "NWSC_2"}
+
+   }
+
+
+   #barrier gates
+
+    #B4  wire 1
+    region{
+        obelisk{
+            base_x = [$gap_dots_middle / 6, $begin_P_6_x]
+            base_y = [$gap_dots_middle / 6, $gap_dots_middle / 6]
+            base_z = [$begin_barrier_gate ,$begin_barrier_gate + $barrier_gate_stack_depth]
+            top_x = [$end_P_2_x, $end_P_2_x + $wire_width]
+            top_y = [$begin_P_2_y + $circle_radius / 4, $begin_P_2_y + $circle_radius / 4]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+            }
+        binary { name = "SiO2"}
+        contact{ name = "B4_1"}
+
+    }
+
+    #B4 wire 2
+    region{
+        cuboid{
+            x = [$end_P_2_x, $end_P_2_x + $wire_width]
+            y = [$begin_P_2_y + $circle_radius / 4, $begin_square_NS_y + $square_length / 2]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "B4_2"}
+
+    }
+    #B4 wire 3
+    region{ 
+        obelisk{
+            base_x = [$end_P_2_x, $end_P_2_x + $wire_width]
+            base_y = [$begin_square_NS_y + $square_length / 2,$begin_square_NS_y + $square_length / 2]
+            base_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth] 
+            top_x = [$max_x, $max_x + $wire_width]
+            top_y = [$begin_square_NS_y + $square_length / 2 + $max_x - $end_P_2_x,$begin_square_NS_y + $square_length / 2 + $max_x - $end_P_2_x]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary{ name = "SiO2"}
+        contact{ name = "B4_3"}
+
+    }
+
+
+    #B3  wire 1
+    region{
+        obelisk{
+            base_x = [- $gap_dots_middle / 6, $end_P_5_x]
+            base_y = [$gap_dots_middle / 6, $gap_dots_middle / 6]
+            base_z = [$begin_barrier_gate ,$begin_barrier_gate + $barrier_gate_stack_depth]
+            top_x = [$begin_P_2_x, $begin_P_2_x - $wire_width]
+            top_y = [$begin_P_2_y + $circle_radius / 4, $begin_P_2_y + $circle_radius / 4]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+            }
+        binary { name = "SiO2"}
+        contact{ name = "B3_1"}
+
+    }
+
+    #B3 wire 2
+    region{
+        cuboid{
+            x = [$begin_P_2_x, $begin_P_2_x - $wire_width]
+            y = [$begin_P_2_y + $circle_radius / 4, $begin_square_NS_y + $square_length / 2]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "B3_2"}
+
+    }
+    #B3 wire 3
+    region{ 
+        obelisk{
+            base_x = [$begin_P_2_x, $begin_P_2_x - $wire_width]
+            base_y = [$begin_square_NS_y + $square_length / 2,$begin_square_NS_y + $square_length / 2]
+            base_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth] 
+            top_x = [$min_x, $min_x - $wire_width]
+            top_y = [$begin_square_NS_y + $square_length / 2 + $max_x - $end_P_2_x,$begin_square_NS_y + $square_length / 2 + $max_x - $end_P_2_x]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary{ name = "SiO2"}
+        contact{ name = "B3_3"}
+
+    }
+
+    #B9  wire 1
+    region{
+        obelisk{
+            base_x = [- $gap_dots_middle / 6, $end_P_5_x]
+            base_y = [-$gap_dots_middle / 6, -$gap_dots_middle / 6]
+            base_z = [$begin_barrier_gate ,$begin_barrier_gate + $barrier_gate_stack_depth]
+            top_x = [$begin_P_2_x, $begin_P_2_x - $wire_width]
+            top_y = [$end_P_9_Y - $circle_radius / 4, $end_P_9_Y - $circle_radius / 4]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+            }
+        binary { name = "SiO2"}
+        contact{ name = "B9_1"}
+
+    }
+
+    #B9 wire 2
+    region{
+        cuboid{
+            x = [$begin_P_2_x, $begin_P_2_x - $wire_width]
+            y = [$end_P_9_Y - $circle_radius / 4, $begin_square_SS_y + $square_length / 2]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "B9_2"}
+
+    }
+    #B9 wire 3
+    region{ 
+        obelisk{
+            base_x = [$begin_P_2_x, $begin_P_2_x - $wire_width]
+            base_y = [$begin_square_SS_y + $square_length - $square_length / 2,$begin_square_SS_y + $square_length - $square_length / 2]
+            base_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth] 
+            top_x = [$min_x, $min_x - $wire_width]
+            top_y = [$begin_square_SS_y + $square_length / 2 - $max_x + $end_P_2_x,$begin_square_SS_y + $square_length / 2 - $max_x + $end_P_2_x]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary{ name = "SiO2"}
+        contact{ name = "B9_3"}
+
+    }
+
+
+    #B10  wire 1
+    region{
+        obelisk{
+            base_x = [$gap_dots_middle / 6, $begin_P_6_x]
+            base_y = [-$gap_dots_middle / 6, -$gap_dots_middle / 6]
+            base_z = [$begin_barrier_gate ,$begin_barrier_gate + $barrier_gate_stack_depth]
+            top_x = [$end_P_2_x, $end_P_2_x + $wire_width]
+            top_y = [$end_P_9_Y - $circle_radius / 4, $end_P_9_Y - $circle_radius / 4]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+            }
+        binary { name = "SiO2"}
+        contact{ name = "B10_1"}
+
+    }
+
+    #B10 wire 2
+    region{
+        cuboid{
+            x = [$end_P_2_x, $end_P_2_x + $wire_width]
+            y = [$end_P_9_Y - $circle_radius / 4, $begin_square_SS_y + $square_length / 2]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "B10_2"}
+
+    }
+    #B10 wire 3
+    region{ 
+        obelisk{
+            base_x = [$end_P_2_x, $end_P_2_x + $wire_width]
+            base_y = [$begin_square_SS_y + $square_length - $square_length / 2,$begin_square_SS_y + $square_length - $square_length / 2]
+            base_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth] 
+            top_x = [$max_x, $max_x + $wire_width]
+            top_y = [$begin_square_SS_y + $square_length / 2 - $max_x + $end_P_2_x,$begin_square_SS_y + $square_length / 2 - $max_x + $end_P_2_x]
+            top_z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary{ name = "SiO2"}
+        contact{ name = "B10_3"}
+
+    }
+
+        #NBR
+    region{
+        cuboid{
+            x = [$end_sensor_s_x, $end_sensor_s_x + $wire_width]
+            y = [$start_sensor_n_y + $sensor_dot_ellipse_y / 2, $max_y]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "NBR"}
+
+    }
+     #NBL
+    region{
+        cuboid{
+            x = [$start_sensor_s_x, $start_sensor_s_x - $wire_width]
+            y = [$start_sensor_n_y + $sensor_dot_ellipse_y / 2, $max_y]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "NBL"}
+
+    }
+
+        #SBR
+    region{
+        cuboid{
+            x = [$end_sensor_s_x, $end_sensor_s_x + $wire_width]
+            y = [$end_sensor_s_y - $sensor_dot_ellipse_y / 2, $min_y]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+        }
+        binary { name = "SiO2"}
+        contact{ name = "SBR"}
+
+    }
+     #SBL
+    region{
+        cuboid{
+            x = [$start_sensor_s_x, $start_sensor_s_x - $wire_width]
+            y = [$end_sensor_s_y - $sensor_dot_ellipse_y / 2, $min_y]
+            z = [$begin_barrier_gate, $begin_barrier_gate + $barrier_gate_stack_depth]
+
+        }
+        binary { name = "SiO2"}
+        contact{ name = "SBL"}
+
+    }
+
+    #NESC_1
+    region{                                  
+        cuboid{ x = [ $begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2 ] y = [ $end_P_6_Y, $begin_square_NS_y] z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth] } 
+        binary{ name = "SiO2"}
+        contact{ name = "NESC_1"}
+    }
+
+    #NESC_2
+    region{
+        obelisk{
+            base_x = [$begin_P_6_x + $circle_radius / 2 - $wire_width / 2, $begin_P_6_x + $circle_radius / 2 + $wire_width / 2]
+            base_y = [$begin_square_NS_y, $begin_square_NS_y]
+            base_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+
+            top_x = [$max_x, $max_x + $wire_width]
+            top_y = [$begin_square_NS_y + $max_x - ($begin_P_6_x + $circle_radius /2 - $wire_width / 2),$begin_square_NS_y + $max_x - ($begin_P_6_x + $circle_radius /2 - $wire_width / 2)] #getting 45 degree angle
+            top_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+ 
+            }
+        binary{name = "SiO2"}
+        contact{ name = "NESC_2"}
+    }
+    #SWSC_1
+    region{                                  
+        cuboid{ x = [ $end_P_5_x - $circle_radius / 2 + $wire_width / 2, $end_P_5_x - $circle_radius / 2 - $wire_width / 2 ] y = [ $begin_P_5_Y + 20, $begin_square_SS_y + $square_length] z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth] } 
+        binary{ name = "SiO2"}
+        contact{ name = "SWSC_1" }
+    }
+
+    #SWSC_2
+    region{
+        obelisk{
+            base_x = [$end_P_5_x - $circle_radius / 2 + $wire_width / 2, $end_P_5_x - $circle_radius / 2 - $wire_width / 2]
+            base_y = [$begin_square_SS_y + $square_length, $begin_square_SS_y + $square_length]
+            base_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+            top_x = [$min_x, $min_x - $wire_width]
+            #top_y = [$begin_square_SS_y + ($min_x - ($end_P_5_x - $circle_radius /2 + $wire_width / 2)),$begin_square_SS_y + ($min_x - ($end_P_5_x - $circle_radius /2 + $wire_width / 2))]   #getting 45 degree angle
+            top_y = [$begin_square_SS_y + $square_length + $min_x -($end_P_5_x - $circle_radius / 2 + $wire_width / 2), $begin_square_SS_y + $square_length + $min_x -($end_P_5_x - $circle_radius / 2 + $wire_width / 2)]
+            top_z = [$begin_screening_depth, $begin_screening_depth + $screening_gate_depth]
+ 
+            }
+        binary{name = "SiO2"}  
+        contact{ name = "SWSC_2"}
+
+    }
+
+
+
+}
+
+        #DEFINING SPACING AND RESOLUTION
+ 
+ 
+grid{                      # this group is required in every input file
+    xgrid{                 # grid in x direction
+        line{ 
+            pos = $min_x    # start of device at x = 0.0nm
+            spacing = 8  # grid spacing 1.0nm
+        }  
+        line{                                  
+            pos = $max_x   # end of device
+            spacing = 8  # grid spacing 1.0nm
+        }   
+    }
+    ygrid{                 # grid in x direction
+        line{ 
+            pos = $min_y      # start of device at y = 0.0nm
+            spacing = 8  # grid spacing 1.0nm
+        }  
+        line{                                  
+            pos = $max_y     # end of device at y = 50.0nm
+            spacing = 8  # grid spacing 1.0nm
+        }   
+    }
+    zgrid{                 # grid in x direction
+        line{ 
+            pos = 0.0      # start of device at z = 0.0nm
+            spacing = 5  # grid spacing 1.0nm
+        }  
+        line{                                  
+            pos = $begin_plunger_layer + $plunger_layer_depth    # end of device at z = 50.0nm
+            spacing = 5  # grid spacing 1.0nm
+        }   
+        line{ pos = 1
+            spacing = 2}
+        line{ pos = $DHG_depth + 20
+            spacing = 4}     
+        }
+}
+
+classical{ 
+    Gamma{ }
+    HH{ }
+    LH{ }
+    SO{ }
+   Delta{ }
+#    output_bandedges{ averaged = no  profiles="Delta electron_fermi_level" }
+#    
+    output_carrier_densities{ }
+#    output_ionized_dopant_densities{ }
+#    output_intrinsic_density{ }
+}
+
+poisson{ 
+#    between_fermi_levels{ }
+    output_potential{ }
+    output_electric_field{ }
+#    newton_solver{ iterations = 200 }
+}
+
+$N_states = 5
+
+# Quantum region #
+$xq_min = $min_x
+$xq_max = $max_x
+
+$zq_min = $DHG_depth - 10 
+$zq_max = $DHG_depth + 10
+
+$yq_max = $end_sensor_n_y
+$yq_min = $start_sensor_s_y
+
+quantum{ 
+    region{ 
+        name = "QuantumRegion"
+        x = [ $xq_min, $xq_max ]
+        y = [ $yq_min, $yq_max ]
+        z = [ $zq_min, $zq_max ]
+                no_density = no
+        boundary{ x = dirichlet y = dirichlet z = dirichlet }
+        output_quantum_densities{ }
+        output_wavefunctions{ 
+            max_num = $N_states 
+            amplitudes = no
+            probabilities = yes
+            in_one_file = yes
+            energy_shift = both
+            scale = 100
+        }
+        Delta{ 
+            num_ev = $N_states
+            arpack{ }
+        }
+        HH{
+            num_ev = $N_states
+            arpack { } 
+        }
+    }
+}

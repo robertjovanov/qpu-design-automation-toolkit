@@ -20,7 +20,13 @@ from .export import (
     ProcessStack,
     make_sige_ge_process_stack,
     make_reference_sige_ge_process_stack,
+    SimulationDomain,
+    BackgroundRegion,
+    PatternedRegion,
+    SimulationLayout,
+    build_simulation_layout,
 )
+
 
 __all__ = [
     "GateType",
@@ -45,6 +51,11 @@ __all__ = [
     "MaterialLayer",
     "GateExtrusionRule",
     "ProcessStack",
+    "SimulationDomain",
+    "BackgroundRegion",
+    "PatternedRegion",
+    "SimulationLayout",
+    "build_simulation_layout",
     "make_sige_ge_process_stack",
     "make_reference_sige_ge_process_stack",
 ]

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import json
 
 from phidl import Device
@@ -9,9 +9,10 @@ from ..core import (
     BARRIER,
     OHMIC,
     PLUNGER,
+    SCREENING,
     ComponentMetadata,
 )
-from ..gates import BarrierGate, OhmicContact, PlungerGate
+from ..gates import BarrierGate, OhmicContact, PlungerGate, ScreeningGate
 from ..export import PlacedElement, placed_element_from_component
 
 
@@ -46,6 +47,10 @@ class LinearDotArrayDevice:
     ohmic_to_barrier_gap_nm: float = 20.0
     barrier_to_plunger_gap_nm: float = 20.0
 
+    include_screening_gates: bool = False
+    screening_gate_width_nm: Optional[float] = None
+    screening_gate_length_nm: Optional[float] = None
+
     device: Device = field(init=False, repr=False)
     refs: Dict[str, Any] = field(init=False, default_factory=dict, repr=False)
     elements: Dict[str, PlacedElement] = field(init=False, default_factory=dict, repr=False)
@@ -65,6 +70,27 @@ class LinearDotArrayDevice:
             raise ValueError("Barrier dimensions must be positive.")
         if self.ohmic_to_barrier_gap_nm < 0 or self.barrier_to_plunger_gap_nm < 0:
             raise ValueError("Horizontal gaps must be non-negative.")
+        if self.plunger_body_width_nm <= 0 or self.plunger_body_length_nm < 0:
+            raise ValueError(
+                "Plunger body width must be positive and body length must be non-negative."
+            )
+        if self.include_screening_gates:
+            if self.effective_screening_gate_width_nm <= 0:
+                raise ValueError("Screening gate width must be positive.")
+            if self.effective_screening_gate_length_nm <= 0:
+                raise ValueError("Screening gate length must be positive.")
+
+    @property
+    def effective_screening_gate_width_nm(self) -> float:
+        if self.screening_gate_width_nm is None:
+            return self.plunger_body_width_nm
+        return float(self.screening_gate_width_nm)
+
+    @property
+    def effective_screening_gate_length_nm(self) -> float:
+        if self.screening_gate_length_nm is None:
+            return self.plunger_body_length_nm
+        return float(self.screening_gate_length_nm)
 
     def _make_plunger(self, index: int) -> PlungerGate:
         return PlungerGate(
@@ -93,6 +119,20 @@ class LinearDotArrayDevice:
             ),
             width_nm=self.barrier_width_nm,
             length_nm=self.barrier_length_nm,
+        )
+
+    def _make_screening_gate(self, index: int) -> ScreeningGate:
+        return ScreeningGate(
+            metadata=ComponentMetadata(
+                name=f"SG{index}",
+                gate_type=GateType.SCREENING,
+                layer=SCREENING,
+                voltage_label=f"V_SG{index}",
+                role="plunger_body_screen",
+                notes=f"Screening gate aligned below the body of P{index}.",
+            ),
+            width_nm=self.effective_screening_gate_width_nm,
+            length_nm=self.effective_screening_gate_length_nm,
         )
 
     def _make_left_ohmic(self) -> OhmicContact:
@@ -130,12 +170,18 @@ class LinearDotArrayDevice:
 
         barriers = [self._make_barrier(i + 1) for i in range(self.n_dots + 1)]
         plungers = [self._make_plunger(i + 1) for i in range(self.n_dots)]
+        screening_gates = (
+            [self._make_screening_gate(i + 1) for i in range(self.n_dots)]
+            if self.include_screening_gates
+            else []
+        )
 
         ref_oc_l = left_ohmic.add_to(self.device)
         ref_oc_r = right_ohmic.add_to(self.device)
 
         barrier_refs = [b.add_to(self.device) for b in barriers]
         plunger_refs = [p.add_to(self.device) for p in plungers]
+        screening_refs = [s.add_to(self.device) for s in screening_gates]
 
         half_max = self.plunger_head_max_width_nm / 2.0
         plunger_pitch = (
@@ -207,11 +253,21 @@ class LinearDotArrayDevice:
                 destination=(xc, self.device_y_size_nm),
             )
 
+        screening_width = self.effective_screening_gate_width_nm
+        screening_length = self.effective_screening_gate_length_nm
+        screening_y_min = self.device_y_size_nm - screening_length
+        for ref_s, xc in zip(screening_refs, plunger_centers_x):
+            ref_s.move(
+                origin=(ref_s.xmin, ref_s.ymin),
+                destination=(xc - 0.5 * screening_width, screening_y_min),
+            )
+
         self.refs = {
             "left_ohmic": ref_oc_l,
             "right_ohmic": ref_oc_r,
             "barriers": barrier_refs,
             "plungers": plunger_refs,
+            "screening_gates": screening_refs,
             "plunger_centers_x": plunger_centers_x,
             "barrier_x_lefts": barrier_x_lefts,
         }
@@ -224,6 +280,12 @@ class LinearDotArrayDevice:
             plunger_name = f"P{i + 1}"
             elements[barrier_name] = placed_element_from_component(barriers[i], barrier_refs[i])
             elements[plunger_name] = placed_element_from_component(plungers[i], plunger_refs[i])
+            if self.include_screening_gates:
+                screening_name = f"SG{i + 1}"
+                elements[screening_name] = placed_element_from_component(
+                    screening_gates[i],
+                    screening_refs[i],
+                )
 
         last_barrier_name = f"B{self.n_dots + 1}"
         elements[last_barrier_name] = placed_element_from_component(
@@ -257,6 +319,9 @@ class LinearDotArrayDevice:
             "plunger_lower_taper_height_nm": self.plunger_lower_taper_height_nm,
             "ohmic_to_barrier_gap_nm": self.ohmic_to_barrier_gap_nm,
             "barrier_to_plunger_gap_nm": self.barrier_to_plunger_gap_nm,
+            "include_screening_gates": self.include_screening_gates,
+            "screening_gate_width_nm": self.effective_screening_gate_width_nm,
+            "screening_gate_length_nm": self.effective_screening_gate_length_nm,
         }
 
     def layout_elements(self) -> Dict[str, PlacedElement]:

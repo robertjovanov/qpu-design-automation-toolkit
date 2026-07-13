@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.component import BaseComponent
+
+
+PolygonXY = List[Tuple[float, float]]
 
 
 @dataclass
@@ -33,8 +36,27 @@ class PlacedElement:
 
     params: Dict[str, Any]
 
+    # Actual placed polygon vertices in x-y.
+    # One layout element can contain one or more polygons.
+    polygon_xy_nm: List[PolygonXY]
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+def _extract_polygons_from_ref(ref) -> List[PolygonXY]:
+    """
+    Extract placed polygon vertices from a PHIDL DeviceReference.
+    Coordinates are already transformed into parent-layout coordinates.
+    """
+    polygons = ref.get_polygons()
+    result: List[PolygonXY] = []
+
+    for polygon in polygons:
+        points = [(float(x), float(y)) for x, y in polygon]
+        result.append(points)
+
+    return result
 
 
 def placed_element_from_component(component: BaseComponent, ref) -> PlacedElement:
@@ -66,4 +88,5 @@ def placed_element_from_component(component: BaseComponent, ref) -> PlacedElemen
         width_nm=x_max - x_min,
         height_nm=y_max - y_min,
         params=dict(component.params),
+        polygon_xy_nm=_extract_polygons_from_ref(ref),
     )

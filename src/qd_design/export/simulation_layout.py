@@ -7,6 +7,8 @@ import json
 from .layout_spec import PlacedElement
 from .process_stack import MaterialLayer, ProcessStack
 
+PolygonXY = List[tuple[float, float]]
+
 
 @dataclass
 class SimulationDomain:
@@ -70,6 +72,7 @@ class PatternedRegion:
 
     source_rule_name: str
     params: Dict[str, Any]
+    polygon_xy_nm: List[PolygonXY]
     notes: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -126,6 +129,7 @@ def _placed_element_from_dict(data: Dict[str, Any]) -> PlacedElement:
         width_nm=data["width_nm"],
         height_nm=data["height_nm"],
         params=data.get("params", {}),
+        polygon_xy_nm=data.get("polygon_xy_nm", []),
     )
 
 
@@ -223,6 +227,7 @@ def build_simulation_layout(
                 gds_datatype=element.gds_datatype,
                 source_rule_name=rule.name,
                 params=dict(element.params),
+                polygon_xy_nm=element.polygon_xy_nm,
                 notes=element.notes or rule.notes,
             )
         )

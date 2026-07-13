@@ -45,7 +45,7 @@ def get_run_paths(folder_output: str | Path) -> RunPaths:
 
 def read_dat(path: str | Path) -> pd.DataFrame:
     """Read nextnano *.dat whitespace tables."""
-    return pd.read_csv(Path(path), delim_whitespace=True, comment="#")
+    return pd.read_csv(Path(path), sep=r"\s+", comment="#")
 
 
 # =============================================================================
@@ -638,6 +638,7 @@ def plot_1d_summary_presentation(
     n_states: int = 2,
     xlim=None,
     density_zero_offset_ev: float = 0.1,
+    density_x_shift_nm: float = 3.5,
 ):
     """
     Plot raw 1D QW quantities directly from nextnano output files, with presentation colors:
@@ -646,10 +647,11 @@ def plot_1d_summary_presentation(
       - electron / hole Fermi levels: cyan
       - E_1 / Psi^2_1: red
       - E_2 / Psi^2_2: blue
-      - hole density: green (right axis)
+      - quantum hole density: green (right axis)
 
     Left y-axis: energies + raw Psi^2_i
     Right y-axis: hole density, with density=0 aligned to (hole_Fermi_level - density_zero_offset_ev)
+    The density x-coordinate is shifted by density_x_shift_nm for this presentation plot only.
     """
     run_dir = Path(run_dir)
     b0 = run_dir / bias_folder
@@ -658,12 +660,12 @@ def plot_1d_summary_presentation(
     df_be = read_dat(b0 / "bandedges.dat")
     xcol_be = df_be.columns[0]
 
-    # --- total hole density ---
-    df_den = read_dat(b0 / "density_hole.dat")
+    # --- quantum hole density ---
+    df_den = read_dat(b0 / "Quantum" / region / band / "density.dat")
     xcol_den = df_den.columns[0]
-    hole_col = next((c for c in df_den.columns if "Hole_density" in c), None)
-    if hole_col is None:
-        raise ValueError(f"No Hole_density column found in {b0 / 'density_hole.dat'}")
+    hole_col = df_den.columns[-1]
+    hole_label = "Hole_density[1e18_cm^-3]" if hole_col == "Density[1e18_cm^-3]" else hole_col
+    density_x = df_den[xcol_den].to_numpy(dtype=float) + density_x_shift_nm
 
     # --- probabilities / eigenenergies ---
     prob_path = b0 / "Quantum" / region / band / "probabilities_shift_k00000.dat"
@@ -710,8 +712,8 @@ def plot_1d_summary_presentation(
     # Hole density on right axis (green)
     density_vals = df_den[hole_col].to_numpy()
     fig.add_trace(go.Scatter(
-        x=df_den[xcol_den], y=density_vals,
-        mode="lines", name=hole_col,
+        x=density_x, y=density_vals,
+        mode="lines", name=hole_label,
         line=dict(color="green", width=2),
         yaxis="y2"
     ))
@@ -761,8 +763,23 @@ def plot_1d_summary_presentation(
     for z0 in (-15.0, 0.0):
         fig.add_vline(x=z0, line_width=2, line_dash="dot", line_color="gray")
 
+    def visible_values(x, y):
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        if xlim is not None:
+            mask = (x >= xlim[0]) & (x <= xlim[1])
+            y = y[mask]
+        y = y[np.isfinite(y)]
+        return y
+
     # --- compute y1 range manually ---
-    y1_all = np.concatenate([np.asarray(v, dtype=float).ravel() for v in y1_vals])
+    y1_visible = []
+    for trace in fig.data:
+        if getattr(trace, "yaxis", None) in ("y", "y1"):
+            vals = visible_values(trace.x, trace.y)
+            if vals.size:
+                y1_visible.append(vals)
+    y1_all = np.concatenate(y1_visible or [np.asarray(v, dtype=float).ravel() for v in y1_vals])
     y1_min = float(np.nanmin(y1_all))
     y1_max = float(np.nanmax(y1_all))
     y1_pad = 0.05 * (y1_max - y1_min + 1e-12)
@@ -771,26 +788,32 @@ def plot_1d_summary_presentation(
 
     # --- align density=0 to (hole_Fermi_level - density_zero_offset_ev) ---
     if "hole_Fermi_level[eV]" in df_be.columns:
-        efh_ref = float(np.mean(df_be["hole_Fermi_level[eV]"].to_numpy()))
+        efh_values = visible_values(df_be[xcol_be], df_be["hole_Fermi_level[eV]"])
+        efh_ref = float(np.mean(efh_values)) if efh_values.size else float(np.mean(df_be["hole_Fermi_level[eV]"].to_numpy()))
     else:
         efh_ref = y1_max
 
     y_ref = efh_ref - density_zero_offset_ev
+    if density_zero_offset_ev > 0:
+        y1_min_plot = min(y1_min_plot, y_ref - density_zero_offset_ev)
+
     t = (y_ref - y1_min_plot) / (y1_max_plot - y1_min_plot)
     t = min(max(t, 1e-6), 1 - 1e-6)  # keep safe
 
-    y2_max = float(np.nanmax(density_vals)) * 1.05 if np.nanmax(density_vals) > 0 else 1.0
+    density_visible = visible_values(density_x, density_vals)
+    density_peak = float(np.nanmax(density_visible)) if density_visible.size else float(np.nanmax(density_vals))
+    y2_max = density_peak * 1.05 if density_peak > 0 else 1.0
     y2_min = -t * y2_max / (1 - t)
 
     fig.update_layout(
-        title=f"Raw 1D QW quantities ({band}, {region})",
+        title=f"Valence band edge profiles and hole density of 2DHG structure",
         xaxis_title="z (nm)",
         yaxis=dict(
             title="Energy (eV) + raw Psi²",
             range=[y1_min_plot, y1_max_plot]
         ),
         yaxis2=dict(
-            title=hole_col,
+            title=hole_label,
             overlaying="y",
             side="right",
             range=[y2_min, y2_max]

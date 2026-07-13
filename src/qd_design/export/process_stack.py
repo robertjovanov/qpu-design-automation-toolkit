@@ -159,11 +159,14 @@ def make_sige_ge_process_stack(
     sige_alloy_x: float = 0.15,
     barrier_gate_thickness_nm: float = 30.0,
     plunger_gate_thickness_nm: float = 30.0,
+    screening_gate_thickness_nm: Optional[float] = None,
     barrier_gate_bottom_z_nm: float = 108.0,
     plunger_gate_bottom_z_nm: float = 143.0,
+    screening_gate_bottom_z_nm: Optional[float] = None,
     ohmic_depth_from_device_top_nm: float = 250.0,
     barrier_material: str = "Al",
     plunger_material: str = "Al",
+    screening_material: str = "Al",
     ohmic_material: str = "Al",
     dielectric_material: str = "Al2O3",
     cap_material: str = "SiGe",
@@ -183,6 +186,8 @@ def make_sige_ge_process_stack(
     - SiGe cap above the QW
     - one continuous Al2O3 dielectric layer above the cap
     - barrier and plunger gates are local patterned overrides inside the dielectric
+    - an optional screening gate layer can be inserted as another patterned
+      dielectric-embedded metal layer
     - ohmics are local patterned overrides spanning from the top of the device
       downward by a specified depth
 
@@ -198,6 +203,9 @@ def make_sige_ge_process_stack(
     - barrier gates:       108   .. 138
     - plunger gates:       143   .. 173
     - ohmics:              -77   .. 173
+
+    If ``screening_gate_bottom_z_nm`` is provided, a screening gate rule is
+    added. If its thickness is omitted, the plunger gate thickness is reused.
     """
     if sige_buffer_thickness_nm <= 0:
         raise ValueError("sige_buffer_thickness_nm must be positive.")
@@ -211,6 +219,15 @@ def make_sige_ge_process_stack(
         raise ValueError("barrier_gate_thickness_nm must be positive.")
     if plunger_gate_thickness_nm <= 0:
         raise ValueError("plunger_gate_thickness_nm must be positive.")
+    if screening_gate_thickness_nm is not None and screening_gate_thickness_nm <= 0:
+        raise ValueError("screening_gate_thickness_nm must be positive.")
+    if screening_gate_thickness_nm is not None and screening_gate_bottom_z_nm is None:
+        raise ValueError(
+            "screening_gate_bottom_z_nm must be provided when "
+            "screening_gate_thickness_nm is provided."
+        )
+    if screening_gate_bottom_z_nm is not None and screening_gate_thickness_nm is None:
+        screening_gate_thickness_nm = plunger_gate_thickness_nm
     if ohmic_depth_from_device_top_nm <= 0:
         raise ValueError("ohmic_depth_from_device_top_nm must be positive.")
     if sige_alloy_x < 0 or sige_alloy_x > 1:
@@ -237,11 +254,21 @@ def make_sige_ge_process_stack(
     barrier_z_min = barrier_gate_bottom_z_nm
     barrier_z_max = barrier_z_min + barrier_gate_thickness_nm
 
+    screening_z_min = screening_gate_bottom_z_nm
+    screening_z_max = (
+        screening_z_min + screening_gate_thickness_nm
+        if screening_z_min is not None and screening_gate_thickness_nm is not None
+        else None
+    )
+
     plunger_z_min = plunger_gate_bottom_z_nm
     plunger_z_max = plunger_z_min + plunger_gate_thickness_nm
 
     # The very top of the device is the highest z in the patterned/continuous stack.
-    device_top_z = max(dielectric_z_max, barrier_z_max, plunger_z_max)
+    patterned_top_z = [barrier_z_max, plunger_z_max]
+    if screening_z_max is not None:
+        patterned_top_z.append(screening_z_max)
+    device_top_z = max(dielectric_z_max, *patterned_top_z)
 
     # Ohmics span from the top of the device downward by the chosen depth.
     ohmic_z_max = device_top_z
@@ -258,6 +285,58 @@ def make_sige_ge_process_stack(
             "Plunger gate extends above the dielectric background layer. "
             "Increase al2o3_total_thickness_nm or move the plunger gate lower."
         )
+
+    if screening_z_min is not None and screening_z_max is not None:
+        if screening_z_max > dielectric_z_max:
+            raise ValueError(
+                "Screening gate extends above the dielectric background layer. "
+                "Increase al2o3_total_thickness_nm or move the screening gate lower."
+            )
+        if screening_z_min < dielectric_z_min:
+            raise ValueError(
+                "Screening gate extends below the dielectric background layer. "
+                "Move the screening gate higher or lower the dielectric bottom."
+            )
+
+    gate_rules = [
+        GateExtrusionRule(
+            name="barrier_gate_rule",
+            applies_to_layer_names=["barrier"],
+            material=barrier_material,
+            z_min_nm=barrier_z_min,
+            z_max_nm=barrier_z_max,
+        ),
+    ]
+
+    if screening_z_min is not None and screening_z_max is not None:
+        gate_rules.append(
+            GateExtrusionRule(
+                name="screening_gate_rule",
+                applies_to_layer_names=["screening"],
+                material=screening_material,
+                z_min_nm=screening_z_min,
+                z_max_nm=screening_z_max,
+            )
+        )
+
+    gate_rules.extend(
+        [
+            GateExtrusionRule(
+                name="plunger_gate_rule",
+                applies_to_layer_names=["plunger", "sensor"],
+                material=plunger_material,
+                z_min_nm=plunger_z_min,
+                z_max_nm=plunger_z_max,
+            ),
+            GateExtrusionRule(
+                name="ohmic_gate_rule",
+                applies_to_layer_names=["ohmic"],
+                material=ohmic_material,
+                z_min_nm=ohmic_z_min,
+                z_max_nm=ohmic_z_max,
+            ),
+        ]
+    )
 
     stack = ProcessStack(
         name=name,
@@ -290,29 +369,7 @@ def make_sige_ge_process_stack(
                 z_max_nm=dielectric_z_max,
             ),
         ],
-        gate_rules=[
-            GateExtrusionRule(
-                name="barrier_gate_rule",
-                applies_to_layer_names=["barrier"],
-                material=barrier_material,
-                z_min_nm=barrier_z_min,
-                z_max_nm=barrier_z_max,
-            ),
-            GateExtrusionRule(
-                name="plunger_gate_rule",
-                applies_to_layer_names=["plunger", "sensor"],
-                material=plunger_material,
-                z_min_nm=plunger_z_min,
-                z_max_nm=plunger_z_max,
-            ),
-            GateExtrusionRule(
-                name="ohmic_gate_rule",
-                applies_to_layer_names=["ohmic"],
-                material=ohmic_material,
-                z_min_nm=ohmic_z_min,
-                z_max_nm=ohmic_z_max,
-            ),
-        ],
+        gate_rules=gate_rules,
     )
 
     stack.validate()

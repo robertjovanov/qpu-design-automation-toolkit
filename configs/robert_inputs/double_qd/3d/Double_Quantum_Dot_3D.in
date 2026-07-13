@@ -33,6 +33,7 @@ $V_PG2    = -3 # (V)
 $V_BG3    = 0  # (V)
 $V_source = 0  # (V)
 $V_drain  = 0  # (V)
+$V_remove_surface_charge = -1.5 # (V)
 
 #--- doping and surface charges ---
 
@@ -87,7 +88,7 @@ $Lx_BG3_Drain       = 1000   # (nm) distance between BG3 and the drain ohmic edg
 $Ly_domain_top      =  100    # (nm) distance from y=0 to the top border of the simulation region
 $Ly_domain_bottom   =  100    # (nm) distance from y=0 to the bottom border of the simulation region
 $Ly_BG_top          =   40    # (nm) top y-extent of the barrier gates
-$Ly_PG_body         =   60    # (nm) body length of each plunger gate, measured from y=0 upward
+$Ly_PG_body         =  100    # (nm) body length of each plunger gate, measured from y=0 upward
 
 # z-axis, the growth direction
 $Lz_PG              =   30 # (nm) thickness of the P Gate (PG)
@@ -303,14 +304,16 @@ impurities{
 
 contacts{ 
     vacuum_level = $vacuum_level
-    schottky{ name = BG1        bias = $V_BG1       work_function = $work_function_Gate }
-    schottky{ name = PG1        bias = $V_PG1       work_function = $work_function_Gate }
-    schottky{ name = BG2        bias = $V_BG2       work_function = $work_function_Gate }
-    schottky{ name = PG2        bias = $V_PG2       work_function = $work_function_Gate }
-    schottky{ name = BG3        bias = $V_BG3       work_function = $work_function_Gate }
-    schottky{ name = Source     bias = $V_source    work_function = $work_function_OC } 
-    schottky{ name = Drain      bias = $V_drain     work_function = $work_function_OC } 
-    ohmic{    name = Body       bias = 0.0          shift = 0.0 }
+    schottky{ name = BG1        bias = 0       work_function = $work_function_Gate - $V_BG1}
+    schottky{ name = PG1        bias = 0       work_function = $work_function_Gate - $V_PG1}
+    schottky{ name = BG2        bias = 0       work_function = $work_function_Gate - $V_BG2}
+    schottky{ name = PG2        bias = 0       work_function = $work_function_Gate - $V_PG2}
+    schottky{ name = BG3        bias = 0       work_function = $work_function_Gate - $V_BG3}
+    schottky{ name = Source     bias = 0       work_function = $work_function_OC - $V_source} 
+    schottky{ name = Drain      bias = 0       work_function = $work_function_OC - $V_drain} 
+    ohmic{    name = Body       bias = 0.0     shift = 0.0 }
+    fermi_hole{ name = remove_surface_charge bias = $V_remove_surface_charge }
+    fermi_hole{ name = zero_fermi_QW bias = 0.0 }
 }
 
 structure{ 
@@ -359,6 +362,7 @@ structure{
             z = [$z_GeQW, $z_SiGe_cap] 
         }
         ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
+        integrate{ hole_density{} } 
     }
 
     # cs-Ge cap
@@ -370,6 +374,27 @@ structure{
         }
         ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
         doping{ constant{ name = "surface_charge" conc = $surface_charge_density }}
+        integrate{ hole_density{} }
+    }
+
+    # r-SiGe cap REMOVE SURFACE CHARGE
+    region{
+        cuboid{  
+            x = [$x_domain_left, $x_domain_right]
+            y = [$y_domain_bottom, $y_domain_top]
+            z = [$z_GeQW, $z_Ge_cap] 
+        }
+        contact{ name = remove_surface_charge}
+    }
+
+    # cs-Ge QW ZERO FERMI QW
+    region{
+        cuboid{ 
+            x = [$x_domain_left, $x_domain_right]
+            y = [$y_domain_bottom, $y_domain_top]
+            z = [$z_QR_c_Ge_QW_start, $z_QR_c_Ge_QW_end]
+        }
+        contact{ name = zero_fermi_QW }    
     }
 
     # Al2O3 ( dielectric ) (see in GATES)

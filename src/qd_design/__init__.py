@@ -12,7 +12,14 @@ from .core import (
 )
 from .gates import BarrierGate, OhmicContact, PlungerGate, SensorGate, ScreeningGate
 from .utils import place_right_of
-from .devices import SingleDotDevice, LinearDotArrayDevice
+from .devices import (
+    SingleDotDevice,
+    LinearDotArrayDevice,
+    VerticallyStackedDoubleDotDevice,
+    SeparatedVerticallyStackedDoubleDotDevice,
+    SquareDotArrayDevice,
+    SeparatedSquareDotArrayDevice,
+)
 from .export import (
     PlacedElement,
     MaterialLayer,
@@ -25,6 +32,10 @@ from .export import (
     PatternedRegion,
     SimulationLayout,
     build_simulation_layout,
+    write_nextnano_input_from_template,
+    render_polygonal_prism,
+    render_structure_block,
+    render_contacts_block,
 )
 
 
@@ -47,6 +58,10 @@ __all__ = [
     "place_right_of",
     "SingleDotDevice",
     "LinearDotArrayDevice",
+    "VerticallyStackedDoubleDotDevice",
+    "SeparatedVerticallyStackedDoubleDotDevice",
+    "SquareDotArrayDevice",
+    "SeparatedSquareDotArrayDevice",
     "PlacedElement",
     "MaterialLayer",
     "GateExtrusionRule",
@@ -58,4 +73,8 @@ __all__ = [
     "build_simulation_layout",
     "make_sige_ge_process_stack",
     "make_reference_sige_ge_process_stack",
+    "write_nextnano_input_from_template",
+    "render_polygonal_prism",
+    "render_structure_block",
+    "render_contacts_block",
 ]

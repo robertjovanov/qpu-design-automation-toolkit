@@ -11,7 +11,7 @@ from ..core import (
     PLUNGER,
     ComponentMetadata,
 )
-from ..gates import BarrierGate, OhmicContact, PlungerGate
+from ..gates import CANONICAL_LOLLIPOP_PLUNGER, BarrierGate, OhmicContact, PlungerGate
 from ..export import PlacedElement, placed_element_from_component
 
 
@@ -36,13 +36,17 @@ class SquareDotArrayDevice:
     barrier_width_nm: float = 40.0
     barrier_length_nm: float = 140.0
 
-    plunger_body_width_nm: float = 40.0
-    plunger_body_length_nm: float = 50.0
-    plunger_head_top_width_nm: float = 60.0
-    plunger_head_max_width_nm: float = 100.0
-    plunger_head_height_nm: float = 100.0
-    plunger_upper_taper_height_nm: float = 25.0
-    plunger_lower_taper_height_nm: float = 25.0
+    plunger_body_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.body_width_nm
+    plunger_body_length_nm: float = CANONICAL_LOLLIPOP_PLUNGER.body_length_nm
+    plunger_head_top_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_top_width_nm
+    plunger_head_max_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_max_width_nm
+    plunger_head_height_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_height_nm
+    plunger_upper_taper_height_nm: float = (
+        CANONICAL_LOLLIPOP_PLUNGER.upper_taper_height_nm
+    )
+    plunger_lower_taper_height_nm: float = (
+        CANONICAL_LOLLIPOP_PLUNGER.lower_taper_height_nm
+    )
 
     ohmic_to_barrier_gap_nm: float = 20.0
     barrier_to_plunger_gap_nm: float = 20.0

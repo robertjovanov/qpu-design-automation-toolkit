@@ -12,7 +12,13 @@ from ..core import (
     SCREENING,
     ComponentMetadata,
 )
-from ..gates import BarrierGate, OhmicContact, PlungerGate, ScreeningGate
+from ..gates import (
+    CANONICAL_LOLLIPOP_PLUNGER,
+    BarrierGate,
+    OhmicContact,
+    PlungerGate,
+    ScreeningGate,
+)
 from ..export import PlacedElement, placed_element_from_component
 
 
@@ -23,6 +29,10 @@ class LinearDotArrayDevice:
 
     Pattern:
         left ohmic + left barrier + N * (plunger + barrier) + right ohmic
+
+    ``barrier_side`` controls whether the barriers approach the channel from
+    the bottom (the historical default) or from the top, alongside the
+    plungers.
     """
 
     name: str = "linear_dot_array"
@@ -35,14 +45,19 @@ class LinearDotArrayDevice:
 
     barrier_width_nm: float = 40.0
     barrier_length_nm: float = 140.0
+    barrier_side: str = "bottom"
 
-    plunger_body_width_nm: float = 40.0
-    plunger_body_length_nm: float = 50.0
-    plunger_head_top_width_nm: float = 60.0
-    plunger_head_max_width_nm: float = 100.0
-    plunger_head_height_nm: float = 100.0
-    plunger_upper_taper_height_nm: float = 25.0
-    plunger_lower_taper_height_nm: float = 25.0
+    plunger_body_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.body_width_nm
+    plunger_body_length_nm: float = CANONICAL_LOLLIPOP_PLUNGER.body_length_nm
+    plunger_head_top_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_top_width_nm
+    plunger_head_max_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_max_width_nm
+    plunger_head_height_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_height_nm
+    plunger_upper_taper_height_nm: float = (
+        CANONICAL_LOLLIPOP_PLUNGER.upper_taper_height_nm
+    )
+    plunger_lower_taper_height_nm: float = (
+        CANONICAL_LOLLIPOP_PLUNGER.lower_taper_height_nm
+    )
 
     ohmic_to_barrier_gap_nm: float = 20.0
     barrier_to_plunger_gap_nm: float = 20.0
@@ -68,6 +83,8 @@ class LinearDotArrayDevice:
             raise ValueError("Ohmic dimensions must be positive.")
         if self.barrier_width_nm <= 0 or self.barrier_length_nm <= 0:
             raise ValueError("Barrier dimensions must be positive.")
+        if self.barrier_side not in {"bottom", "top"}:
+            raise ValueError("barrier_side must be either 'bottom' or 'top'.")
         if self.ohmic_to_barrier_gap_nm < 0 or self.barrier_to_plunger_gap_nm < 0:
             raise ValueError("Horizontal gaps must be non-negative.")
         if self.plunger_body_width_nm <= 0 or self.plunger_body_length_nm < 0:
@@ -240,10 +257,15 @@ class LinearDotArrayDevice:
             destination=(x_ocr_left, 0.0),
         )
 
+        barrier_y_min = (
+            0.0
+            if self.barrier_side == "bottom"
+            else self.device_y_size_nm - self.barrier_length_nm
+        )
         for ref_b, x_left in zip(barrier_refs, barrier_x_lefts):
             ref_b.move(
                 origin=(ref_b.xmin, ref_b.ymin),
-                destination=(x_left, 0.0),
+                destination=(x_left, barrier_y_min),
             )
 
         for ref_p, xc in zip(plunger_refs, plunger_centers_x):
@@ -310,6 +332,7 @@ class LinearDotArrayDevice:
             "ohmic_length_nm": self.ohmic_length_nm,
             "barrier_width_nm": self.barrier_width_nm,
             "barrier_length_nm": self.barrier_length_nm,
+            "barrier_side": self.barrier_side,
             "plunger_body_width_nm": self.plunger_body_width_nm,
             "plunger_body_length_nm": self.plunger_body_length_nm,
             "plunger_head_top_width_nm": self.plunger_head_top_width_nm,
@@ -342,3 +365,10 @@ class LinearDotArrayDevice:
 
     def write_svg(self, filepath: str) -> None:
         self.ensure_built().write_svg(filepath)
+
+
+@dataclass
+class TopBarrierLinearDotArrayDevice(LinearDotArrayDevice):
+    """A 1xN dot array with barriers and plungers entering from the top."""
+
+    barrier_side: str = "top"

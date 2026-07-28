@@ -853,6 +853,79 @@ def load_vtr_plane(
     }
 
 
+def load_vtr_linecut(
+    path: str | Path,
+    *,
+    variable: str | None,
+    axis: str = "x",
+    fixed_coords: Mapping[str, float] | None = None,
+) -> dict[str, Any]:
+    """Load one line from an ASCII VTR file without reading the full volume.
+
+    nextnano writes rectilinear VTR point data with the first coordinate
+    (normally ``x``) varying fastest. Lines along that coordinate are one
+    contiguous window in the ASCII DataArray and are read with mmap. Other
+    line orientations fall back to the general full-volume extractor.
+    """
+    file_path = _coerce_path(path)
+    raw_variable_name = _resolve_vtr_dataarray_name(file_path, variable)
+    coords = _read_vtr_coord_arrays_ascii(file_path)
+    coord_names = [name for name in ("x", "y", "z") if name in coords]
+    axis_name = _resolve_name(axis, {name: coords[name] for name in coord_names})
+
+    if axis_name != coord_names[0]:
+        dataset = _load_vtr_dataset(file_path, variable_names=[raw_variable_name])
+        return extract_linecut(
+            dataset,
+            variable=raw_variable_name,
+            axis=axis_name,
+            fixed_coords=fixed_coords,
+            prefer_nextnanopy=False,
+        )
+
+    chosen_coords: dict[str, float] = {}
+    chosen_indices: dict[str, int] = {}
+    start_value = 0
+    stride = len(coords[axis_name])
+    for coord_name in coord_names[1:]:
+        target = None if fixed_coords is None else fixed_coords.get(coord_name)
+        coord_idx = _nearest_index(coords[coord_name], target=target)
+        chosen_coords[coord_name] = float(coords[coord_name][coord_idx])
+        chosen_indices[coord_name] = int(coord_idx)
+        start_value += int(coord_idx * stride)
+        stride *= len(coords[coord_name])
+
+    with file_path.open("rb") as fh:
+        with mmap.mmap(fh.fileno(), length=0, access=mmap.ACCESS_READ) as mm:
+            body_start, body_end = _find_vtr_dataarray_body_ascii(mm, raw_variable_name)
+            values = _read_mmap_float_window(
+                mm,
+                body_start=body_start,
+                body_end=body_end,
+                start_value=start_value,
+                count=len(coords[axis_name]),
+            )
+
+    name, unit, pretty = _parse_label(raw_variable_name)
+    variable_data = VariableData(
+        name=name or raw_variable_name,
+        value=values,
+        unit=unit,
+        label=pretty,
+    )
+    return {
+        "path": file_path,
+        "axis_name": axis_name,
+        "axis": coords[axis_name],
+        "axis_label": f"{axis_name}[nm]",
+        "requested_coords": dict(fixed_coords or {}),
+        "chosen_coords": chosen_coords,
+        "chosen_indices": chosen_indices,
+        "variable": variable_data,
+        "values": values,
+    }
+
+
 def _as_xy_value_array(values: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     if values.shape == (len(x), len(y)):
         return values
@@ -3877,6 +3950,8 @@ __all__ = [
     "list_variables",
     "load_input_file",
     "load_output_file",
+    "load_vtr_linecut",
+    "load_vtr_plane",
     "make_timestamp_tag",
     "map_integrated_density_regions",
     "parse_fld",

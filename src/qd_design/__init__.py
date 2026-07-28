@@ -10,11 +10,21 @@ from .core import (
     ComponentMetadata,
     BaseComponent,
 )
-from .gates import BarrierGate, OhmicContact, PlungerGate, SensorGate, ScreeningGate
+from .gates import (
+    BarrierGate,
+    CANONICAL_LOLLIPOP_PLUNGER,
+    LollipopPlungerGeometry,
+    OhmicContact,
+    PlungerGate,
+    SensorGate,
+    ScreeningGate,
+)
 from .utils import place_right_of
 from .devices import (
     SingleDotDevice,
     LinearDotArrayDevice,
+    TopBarrierLinearDotArrayDevice,
+    TwoDDotArrayDevice,
     VerticallyStackedDoubleDotDevice,
     SeparatedVerticallyStackedDoubleDotDevice,
     SquareDotArrayDevice,
@@ -37,6 +47,7 @@ from .export import (
     render_structure_block,
     render_contacts_block,
 )
+from .visualization import plot_layout_spec_2d, plot_simulation_layout_3d
 
 
 __all__ = [
@@ -51,6 +62,8 @@ __all__ = [
     "ComponentMetadata",
     "BaseComponent",
     "BarrierGate",
+    "CANONICAL_LOLLIPOP_PLUNGER",
+    "LollipopPlungerGeometry",
     "OhmicContact",
     "PlungerGate",
     "SensorGate",
@@ -58,6 +71,8 @@ __all__ = [
     "place_right_of",
     "SingleDotDevice",
     "LinearDotArrayDevice",
+    "TopBarrierLinearDotArrayDevice",
+    "TwoDDotArrayDevice",
     "VerticallyStackedDoubleDotDevice",
     "SeparatedVerticallyStackedDoubleDotDevice",
     "SquareDotArrayDevice",
@@ -77,4 +92,6 @@ __all__ = [
     "render_polygonal_prism",
     "render_structure_block",
     "render_contacts_block",
+    "plot_layout_spec_2d",
+    "plot_simulation_layout_3d",
 ]

@@ -1,8 +1,28 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from typing import Dict, List, Tuple
 
 from phidl import Device
 
 from ..core.component import BaseComponent
+
+
+@dataclass(frozen=True)
+class LollipopPlungerGeometry:
+    """Shared dimensional contract for comparable lollipop plunger gates."""
+
+    body_width_nm: float = 40.0
+    body_length_nm: float = 50.0
+    head_top_width_nm: float = 60.0
+    head_max_width_nm: float = 100.0
+    head_height_nm: float = 100.0
+    upper_taper_height_nm: float = 25.0
+    lower_taper_height_nm: float = 25.0
+
+    def to_dict(self) -> Dict[str, float]:
+        return asdict(self)
+
+
+CANONICAL_LOLLIPOP_PLUNGER = LollipopPlungerGeometry()
 
 
 @dataclass
@@ -33,15 +53,15 @@ class PlungerGate(BaseComponent):
         Vertical height of the lower tapered section.
     """
 
-    body_width_nm: float = 40.0
-    body_length_nm: float = 80.0
+    body_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.body_width_nm
+    body_length_nm: float = CANONICAL_LOLLIPOP_PLUNGER.body_length_nm
 
-    head_top_width_nm: float = 60.0
-    head_max_width_nm: float = 100.0
-    head_height_nm: float = 100.0
+    head_top_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_top_width_nm
+    head_max_width_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_max_width_nm
+    head_height_nm: float = CANONICAL_LOLLIPOP_PLUNGER.head_height_nm
 
-    upper_taper_height_nm: float = 30.0
-    lower_taper_height_nm: float = 35.0
+    upper_taper_height_nm: float = CANONICAL_LOLLIPOP_PLUNGER.upper_taper_height_nm
+    lower_taper_height_nm: float = CANONICAL_LOLLIPOP_PLUNGER.lower_taper_height_nm
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -57,7 +77,8 @@ class PlungerGate(BaseComponent):
             }
         )
 
-    def build(self) -> Device:
+    def outline_points(self) -> List[Tuple[float, float]]:
+        """Return the canonical body-plus-faceted-head polygon before placement."""
         bw = self.body_width_nm
         bl = self.body_length_nm
         top_w = self.head_top_width_nm
@@ -81,8 +102,6 @@ class PlungerGate(BaseComponent):
                 "upper_taper_height_nm + lower_taper_height_nm must be <= head_height_nm."
             )
 
-        layer = self.metadata.layer.phidl_layer
-
         y0 = 0.0
         y1 = bl
         y2 = bl + h_lower
@@ -93,7 +112,7 @@ class PlungerGate(BaseComponent):
         half_top = top_w / 2.0
         half_max = max_w / 2.0
 
-        polygon_points = [
+        return [
             (-half_bw, y0),
             (half_bw, y0),
             (half_bw, y1),
@@ -106,8 +125,24 @@ class PlungerGate(BaseComponent):
             (-half_bw, y1),
         ]
 
+    def build(self) -> Device:
+        layer = self.metadata.layer.phidl_layer
+        polygon_points = self.outline_points()
+
         self.device.add_polygon(polygon_points, layer=layer)
 
+        bl = self.body_length_nm
+        hh = self.head_height_nm
+        h_upper = self.upper_taper_height_nm
+        h_lower = self.lower_taper_height_nm
+        bw = self.body_width_nm
+        top_w = self.head_top_width_nm
+        max_w = self.head_max_width_nm
+        y0 = 0.0
+        y2 = bl + h_lower
+        y3 = bl + hh - h_upper
+        y4 = bl + hh
+        half_max = max_w / 2.0
         y_side_mid = 0.5 * (y2 + y3)
 
         self.device.add_port(

@@ -1,65 +1,97 @@
 import os
-import nextnanopy as nn
 
-print(f'The nextnanopy config file is stored in: {nn.config.fullpath}')
-
-#++++++++++++++++++++++++++++++++++++++++++++++++++
-# Specify your license folder
-#++++++++++++++++++++++++++++++++++++++++++++++++++
-path_license         = r"/Applications/nextnano/2025_12_17/licenses"
-
-#++++++++++++++++++++++++++++++++++++++++++++++++++
-# Specify your output folder
-#++++++++++++++++++++++++++++++++++++++++++++++++++
-path_nextnano_output = r"/Users/robertjovanov/code/qpu-design-automation-toolkit/runs"            
-
-#++++++++++++++++++++++++++++++++++++++++++++++++++
-# Specify your nextnano installation folder
-#++++++++++++++++++++++++++++++++++++++++++++++++++
-path_nextnano        = r"/Applications/nextnano/2025_12_17"           # nextnano++, nextnano3 and nextnano.MSB software            
+path_license = r"/Applications/nextnano/2025_12_17/licenses"
+path_nextnano_output = r"/Users/robertjovanov/code/qpu-design-automation-toolkit/runs"
+path_nextnano = r"/Applications/nextnano/2025_12_17"
 
 
-# NO NEED TO CHANGE THE FOLLOWING -----------------------------
+def configure_nextnano(
+    license_directory: str = path_license,
+    output_directory: str = path_nextnano_output,
+    nextnano_directory: str = path_nextnano,
+    *,
+    save: bool = True,
+    config=None,
+) -> None:
+    if config is None:
+        import nextnanopy as nn
 
-nn.config.to_default() # initialize to default values
-#---------------------------
-# Location of output folder
-#---------------------------
-nn.config.set('nextnano++'   , 'outputdirectory', path_nextnano_output)
-nn.config.set('nextnano3'    , 'outputdirectory', path_nextnano_output)
-nn.config.set('nextnano.NEGF', 'outputdirectory', path_nextnano_output)
-nn.config.set('nextnano.MSB' , 'outputdirectory', path_nextnano_output)
+        config = nn.config
 
-#---------------------------
-# Location of license files
-#---------------------------
-nn.config.set('nextnano3'    , 'license', os.path.join(path_license, r'license.txt'))
-nn.config.set('nextnano++'    , 'license', os.path.join(path_license, r'license.txt'))
-nn.config.set('nextnano.NEGF', 'license', os.path.join(path_license, r'License_nnNEGF.lic'))
+    config.to_default()
 
-#----------------------------------------------------------
-# Location of nextnano++ files:    executable and database
-#----------------------------------------------------------
-nn.config.set('nextnano++', 'exe'     , os.path.join(path_nextnano, r'nextnano++/bin/nextnano++_gcc_macOS_old'))
-nn.config.set('nextnano++', 'database', os.path.join(path_nextnano, r'nextnano++/database/database.nnp'))
+    config.set("nextnano++", "outputdirectory", output_directory)
+    config.set("nextnano3", "outputdirectory", output_directory)
+    config.set("nextnano.NEGF", "outputdirectory", output_directory)
+    config.set("nextnano.MSB", "outputdirectory", output_directory)
 
-#----------------------------------------------------------
-# Location of nextnano3 files:     executable and database
-#----------------------------------------------------------
-nn.config.set('nextnano3', 'exe'     , os.path.join(path_nextnano, r'nextnano3/bin/nextnano3_gcc_macOS_old'))
-nn.config.set('nextnano3', 'database', os.path.join(path_nextnano, r'nextnano3/database/database.nn3'))
+    config.set("nextnano3", "license", os.path.join(license_directory, "license.txt"))
+    config.set("nextnano++", "license", os.path.join(license_directory, "license.txt"))
+    config.set(
+        "nextnano.NEGF",
+        "license",
+        os.path.join(license_directory, "License_nnNEGF.lic"),
+    )
 
-#----------------------------------------------------------
-# Location of nextnano.NEGF files: executable and database
-#----------------------------------------------------------
-nn.config.set('nextnano.NEGF', 'exe'     , os.path.join(path_nextnano, r'nextnano.NEGF/bin/nextnano.NEGF_win.exe'))
-nn.config.set('nextnano.NEGF', 'database', os.path.join(path_nextnano, r'nextnano.NEGF/database/Material_Database.in'))
+    config.set(
+        "nextnano++",
+        "exe",
+        os.path.join(
+            nextnano_directory,
+            "nextnano++/bin/nextnano++_gcc_macOS_old",
+        ),
+    )
+    config.set(
+        "nextnano++",
+        "database",
+        os.path.join(nextnano_directory, "nextnano++/database/database.nnp"),
+    )
+    config.set(
+        "nextnano3",
+        "exe",
+        os.path.join(
+            nextnano_directory,
+            "nextnano3/bin/nextnano3_gcc_macOS_old",
+        ),
+    )
+    config.set(
+        "nextnano3",
+        "database",
+        os.path.join(nextnano_directory, "nextnano3/database/database.nn3"),
+    )
+    config.set(
+        "nextnano.NEGF",
+        "exe",
+        os.path.join(
+            nextnano_directory,
+            "nextnano.NEGF/bin/nextnano.NEGF_win.exe",
+        ),
+    )
+    config.set(
+        "nextnano.NEGF",
+        "database",
+        os.path.join(
+            nextnano_directory,
+            "nextnano.NEGF/database/Material_Database.in",
+        ),
+    )
+    config.set(
+        "nextnano.MSB",
+        "database",
+        os.path.join(nextnano_directory, "nextnano.MSB/database/materials.msb"),
+    )
 
-#----------------------------------------------------------
-# Location of nextnano.MSB files: executable and database
-#----------------------------------------------------------
-nn.config.set('nextnano.MSB', 'database', os.path.join(path_nextnano, r'nextnano.MSB/database/materials.msb'))
+    if save:
+        config.save()
 
-nn.config.save() # save modifications
 
-print("The nextnanopy config file has been updated and saved.")
+def main() -> None:
+    import nextnanopy as nn
+
+    print(f"The nextnanopy config file is stored in: {nn.config.fullpath}")
+    configure_nextnano(config=nn.config, save=True)
+    print("The nextnanopy config file has been updated and saved.")
+
+
+if __name__ == "__main__":
+    main()

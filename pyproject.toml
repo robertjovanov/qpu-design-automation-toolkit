@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qpu-design-automation-toolkit"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib",
+    "nextnanopy",
+    "numpy",
+    "pandas",
+    "phidl",
+    "plotly",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+    "nextnanopp_tools",
+    "nextnano_analysis",
+    "nextnano_config",
+    "nextnano_run_inventory",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["qd_design*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

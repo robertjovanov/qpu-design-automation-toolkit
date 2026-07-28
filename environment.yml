@@ -8,8 +8,11 @@ dependencies:
   - scipy
   - pandas
   - matplotlib
+  - plotly
+  - phidl
   - jupyterlab
   - ipykernel
+  - pytest
   - pyyaml
   - h5py
   - tqdm

@@ -28,10 +28,14 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
-from typing import Any, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    import matplotlib.figure
+    import plotly.graph_objects
 
 
 DEFAULT_PRODUCT = "nextnano++"
@@ -2265,6 +2269,325 @@ def _add_plotly_y_markers(fig: Any, markers: Sequence[Mapping[str, Any] | Sequen
         )
 
 
+def _quantity_label(name: str, unit: str) -> str:
+    return f"{name}[{unit}]" if unit else name
+
+
+def _sweep_curve_label(row: pd.Series, sweep_value: float) -> tuple[str, str]:
+    sweep_name = "sweep"
+    if "sweep_variable" in row.index:
+        raw_name = row["sweep_variable"]
+        is_missing = raw_name is None or raw_name is pd.NA
+        if not is_missing:
+            try:
+                is_missing = bool(pd.isna(raw_name))
+            except (TypeError, ValueError):
+                is_missing = False
+        if not is_missing and str(raw_name).strip():
+            sweep_name = str(raw_name).strip()
+    return f"{sweep_name} = {sweep_value:g}", sweep_name
+
+
+def plot_sweep_lines(
+    outputs: pd.DataFrame,
+    *,
+    variable: str | None = None,
+    values: Sequence[float] | None = None,
+    interactive: bool = False,
+    title: str | None = None,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    reference_coord: float | None = None,
+) -> matplotlib.figure.Figure | plotly.graph_objects.Figure:
+    """Compare one-dimensional outputs from ``load_sweep_outputs``.
+
+    ``variable`` selects a dependent quantity; otherwise each dataset must
+    contain exactly one. ``values`` filters and orders sweep values using
+    numeric tolerance. ``reference_coord`` optionally subtracts each curve's
+    nearest sampled value. The returned object is a Matplotlib or Plotly figure
+    according to ``interactive``.
+    """
+    if not isinstance(outputs, pd.DataFrame):
+        raise TypeError("outputs must be a pandas DataFrame.")
+
+    required_columns = ("sweep_value", "dataset")
+    missing_columns = [name for name in required_columns if name not in outputs.columns]
+    if missing_columns:
+        raise ValueError(
+            "outputs must contain the required columns: "
+            + ", ".join(f"'{name}'" for name in missing_columns)
+        )
+
+    successful: list[dict[str, Any]] = []
+    for position, (_, row) in enumerate(outputs.iterrows()):
+        dataset = row["dataset"]
+        if dataset is None:
+            continue
+        try:
+            sweep_value = float(row["sweep_value"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"sweep_value at row position {position} must be numeric, "
+                f"got {row['sweep_value']!r}."
+            ) from exc
+        if not np.isfinite(sweep_value):
+            raise ValueError(
+                f"sweep_value at row position {position} must be finite, "
+                f"got {row['sweep_value']!r}."
+            )
+        successful.append(
+            {
+                "position": position,
+                "row": row,
+                "sweep_value": sweep_value,
+                "dataset": dataset,
+            }
+        )
+
+    if not successful:
+        raise ValueError("No successfully loaded datasets are available to plot.")
+
+    if values is None:
+        selected = sorted(successful, key=lambda item: item["sweep_value"])
+    else:
+        try:
+            requested_values = [float(value) for value in values]
+        except TypeError as exc:
+            raise TypeError("values must be a sequence of numeric sweep values.") from exc
+        except ValueError as exc:
+            raise ValueError("values must contain only numeric sweep values.") from exc
+        if not requested_values:
+            raise ValueError("values must contain at least one requested sweep value.")
+        if not all(np.isfinite(value) for value in requested_values):
+            raise ValueError("values must contain only finite sweep values.")
+
+        available_values = np.asarray(
+            [item["sweep_value"] for item in successful],
+            dtype=float,
+        )
+        selected = []
+        selected_positions: set[int] = set()
+        missing_values: list[float] = []
+        for requested_value in requested_values:
+            matches = np.flatnonzero(
+                np.isclose(available_values, requested_value)
+            ).tolist()
+            if not matches:
+                missing_values.append(requested_value)
+                continue
+            if len(matches) > 1:
+                matched_values = ", ".join(
+                    f"{available_values[index]:g}" for index in matches
+                )
+                raise ValueError(
+                    f"Requested sweep value {requested_value:g} is ambiguous; "
+                    f"it matches multiple rows with values: {matched_values}."
+                )
+            match = matches[0]
+            if match in selected_positions:
+                raise ValueError(
+                    f"Requested sweep value {requested_value:g} is ambiguous; "
+                    "it selects a row already matched by another requested value."
+                )
+            selected_positions.add(match)
+            selected.append(successful[match])
+
+        if missing_values:
+            missing_text = ", ".join(f"{value:g}" for value in missing_values)
+            raise ValueError(f"Requested sweep values were not found: {missing_text}.")
+
+    reference_target: float | None = None
+    if reference_coord is not None:
+        try:
+            reference_target = float(reference_coord)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reference_coord must be a numeric coordinate.") from exc
+        if not np.isfinite(reference_target):
+            raise ValueError("reference_coord must be finite.")
+
+    curves: list[dict[str, Any]] = []
+    expected_axis: tuple[str, str] | None = None
+    expected_variable: tuple[str, str] | None = None
+    for item in selected:
+        sweep_value = item["sweep_value"]
+        dataset = item["dataset"]
+        if not isinstance(dataset, OutputDataset):
+            raise TypeError(
+                f"Dataset for sweep value {sweep_value:g} must be an OutputDataset, "
+                f"got {type(dataset).__name__}."
+            )
+        if dataset.ndim != 1 or len(dataset.coords) != 1:
+            raise ValueError(
+                f"Dataset for sweep value {sweep_value:g} must be one-dimensional "
+                f"with exactly one coordinate axis; got ndim={dataset.ndim}."
+            )
+
+        coord_key = dataset.coord_names[0]
+        axis_data = dataset.coords[coord_key]
+        axis_name = axis_data.name or coord_key
+        try:
+            if variable is not None:
+                if variable not in dataset.variables:
+                    raise KeyError(
+                        f"'{variable}' was not found exactly. "
+                        f"Available names: {dataset.variable_names}"
+                    )
+                variable_data = dataset.get_variable(variable)
+            else:
+                variable_data = _get_variable_data(dataset, None)
+        except Exception as exc:
+            requested = f"'{variable}'" if variable is not None else "automatically"
+            raise ValueError(
+                f"Could not select variable {requested} for sweep value "
+                f"{sweep_value:g}: {exc}"
+            ) from exc
+
+        raw_x = np.asarray(axis_data.value)
+        raw_y = np.asarray(variable_data.value)
+        if raw_x.ndim != 1:
+            raise ValueError(
+                f"Coordinate values for sweep value {sweep_value:g} must be "
+                f"one-dimensional; got shape {raw_x.shape}."
+            )
+        if raw_y.ndim != 1:
+            raise ValueError(
+                f"Variable values for sweep value {sweep_value:g} must be "
+                f"one-dimensional; got shape {raw_y.shape}."
+            )
+        if len(raw_x) != len(raw_y):
+            raise ValueError(
+                f"Coordinate and variable lengths differ for sweep value "
+                f"{sweep_value:g}: {len(raw_x)} != {len(raw_y)}."
+            )
+        if len(raw_x) == 0:
+            raise ValueError(
+                f"Dataset for sweep value {sweep_value:g} contains no samples."
+            )
+        try:
+            x_data = np.asarray(raw_x, dtype=float).copy()
+            y_data = np.asarray(raw_y, dtype=float).copy()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Coordinate and variable values for sweep value {sweep_value:g} "
+                "must be numeric."
+            ) from exc
+
+        axis_identity = (axis_name, axis_data.unit)
+        variable_identity = (variable_data.name, variable_data.unit)
+        if expected_axis is None:
+            expected_axis = axis_identity
+            expected_variable = variable_identity
+        else:
+            if axis_identity != expected_axis:
+                raise ValueError(
+                    f"Incompatible coordinate for sweep value {sweep_value:g}: "
+                    f"expected {_quantity_label(*expected_axis)}, got "
+                    f"{_quantity_label(*axis_identity)}."
+                )
+            if variable_identity != expected_variable:
+                raise ValueError(
+                    f"Incompatible variable for sweep value {sweep_value:g}: "
+                    f"expected {_quantity_label(*expected_variable)}, got "
+                    f"{_quantity_label(*variable_identity)}."
+                )
+
+        actual_reference: float | None = None
+        if reference_target is not None:
+            reference_index = _nearest_index(x_data, target=reference_target)
+            actual_reference = float(x_data[reference_index])
+            y_data = y_data - y_data[reference_index]
+
+        curve_label, sweep_name = _sweep_curve_label(
+            item["row"],
+            sweep_value,
+        )
+        curves.append(
+            {
+                "x": x_data,
+                "y": y_data,
+                "label": curve_label,
+                "sweep_name": sweep_name,
+                "sweep_value": sweep_value,
+                "reference_coord": actual_reference,
+            }
+        )
+
+    if expected_axis is None or expected_variable is None:
+        raise ValueError("No curves remain after sweep-value filtering.")
+
+    x_label = _quantity_label(*expected_axis)
+    y_label = _quantity_label(*expected_variable)
+    if reference_target is not None:
+        reference_unit = f" {expected_axis[1]}" if expected_axis[1] else ""
+        y_label = (
+            f"{y_label} (relative to nearest {expected_axis[0]}="
+            f"{reference_target:g}{reference_unit})"
+        )
+
+    if interactive:
+        go = _import_plotly_go()
+        fig = go.Figure()
+        for curve in curves:
+            hovertemplate = (
+                f"{x_label}: %{{x}}<br>"
+                f"{y_label}: %{{y}}<br>"
+                f"{curve['sweep_name']}: {curve['sweep_value']:g}"
+            )
+            if curve["reference_coord"] is not None:
+                reference_unit = f" {expected_axis[1]}" if expected_axis[1] else ""
+                hovertemplate += (
+                    f"<br>nearest reference {expected_axis[0]}: "
+                    f"{curve['reference_coord']:g}{reference_unit}"
+                )
+            hovertemplate += "<extra></extra>"
+            fig.add_trace(
+                go.Scatter(
+                    x=curve["x"],
+                    y=curve["y"],
+                    mode="lines",
+                    name=curve["label"],
+                    meta={
+                        "sweep_variable": curve["sweep_name"],
+                        "sweep_value": curve["sweep_value"],
+                        "reference_coord": curve["reference_coord"],
+                    },
+                    hovertemplate=hovertemplate,
+                )
+            )
+        fig.update_layout(
+            title=title,
+            xaxis_title=x_label,
+            yaxis_title=y_label,
+            template="plotly_white",
+            height=500,
+            legend=dict(itemclick="toggle", itemdoubleclick="toggleothers"),
+        )
+        if xlim is not None:
+            fig.update_xaxes(range=[xlim[0], xlim[1]])
+        if ylim is not None:
+            fig.update_yaxes(range=[ylim[0], ylim[1]])
+        return fig
+
+    plt = _import_matplotlib_pyplot()
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+    for curve in curves:
+        (line,) = ax.plot(curve["x"], curve["y"], label=curve["label"])
+        if curve["reference_coord"] is not None:
+            line.set_gid(f"reference_coord={curve['reference_coord']:g}")
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    if title is not None:
+        ax.set_title(title)
+    ax.grid(alpha=0.25)
+    ax.legend()
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    fig.tight_layout()
+    return fig
+
+
 def plot_dat(
     path: str | Path,
     *,
@@ -4364,6 +4687,7 @@ __all__ = [
     "plot_quantum_probability_volume_slice",
     "plot_structure_linecut",
     "plot_structure_plane",
+    "plot_sweep_lines",
     "plot_total_charges",
     "plot_vtr_linecut",
     "plot_vtr_slice",

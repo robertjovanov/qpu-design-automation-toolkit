@@ -1773,6 +1773,105 @@ def _find_required_outputs(
     return resolved_outputs
 
 
+def validate_run_directory(
+    run_directory: str | Path,
+    *,
+    bias: str | int | None = 0,
+    require_complete: bool = True,
+    required_outputs: Sequence[str | Path] = (),
+) -> Path:
+    """Validate an explicit nextnano run and return its normalized run root.
+
+    The supplied path is expanded and normalized with ``resolve_run_root``;
+    a selected ``bias_XXXXX`` path is normalized through its parent run.
+    Completion checking requires a regular ``job_done.txt`` when requested,
+    bias selection delegates to ``get_bias_dir``, and relative required
+    outputs are checked beneath the selected bias before the run root.
+    """
+    if isinstance(run_directory, str) and not run_directory.strip():
+        raise ValueError("run_directory must be a non-empty string or Path.")
+
+    supplied_path = _coerce_path(run_directory).expanduser().resolve()
+    if not supplied_path.exists():
+        raise FileNotFoundError(
+            f"Selected nextnano run path does not exist: {supplied_path}"
+        )
+    if not supplied_path.is_dir():
+        raise NotADirectoryError(
+            f"Selected nextnano run path is not a directory: {supplied_path}"
+        )
+
+    run_candidate = (
+        supplied_path.parent
+        if supplied_path.name.startswith("bias_")
+        else supplied_path
+    )
+    run_root = resolve_run_root(run_candidate).expanduser().resolve()
+    if not run_root.exists():
+        raise FileNotFoundError(
+            f"Normalized nextnano run root does not exist: {run_root} "
+            f"(supplied path: {supplied_path})"
+        )
+    if not run_root.is_dir():
+        raise NotADirectoryError(
+            f"Normalized nextnano run root is not a directory: {run_root} "
+            f"(supplied path: {supplied_path})"
+        )
+
+    completion_marker = run_root / "job_done.txt"
+    if require_complete and not completion_marker.is_file():
+        raise FileNotFoundError(
+            "Selected nextnano run does not appear complete; expected a regular "
+            f"completion marker: {completion_marker}"
+        )
+
+    bias_dir: Path | None = None
+    if bias is not None:
+        try:
+            bias_dir = get_bias_dir(run_root, bias=bias).expanduser().resolve()
+        except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+            raise FileNotFoundError(
+                f"Requested bias {bias!r} is unavailable under nextnano run "
+                f"{run_root}: {exc}"
+            ) from exc
+        if not bias_dir.is_dir():
+            raise NotADirectoryError(
+                f"Selected bias {bias!r} is not a directory under nextnano run "
+                f"{run_root}: {bias_dir}"
+            )
+
+    requested_outputs = tuple(required_outputs)
+    resolved_outputs = _find_required_outputs(
+        run_root,
+        bias_dir,
+        requested_outputs,
+    )
+    missing_details: list[str] = []
+    for requested_output in requested_outputs:
+        key = str(requested_output)
+        if resolved_outputs[key] is not None:
+            continue
+
+        requested_path = _coerce_path(requested_output).expanduser()
+        if requested_path.is_absolute():
+            checked_paths = [requested_path.resolve()]
+        else:
+            checked_paths = []
+            if bias_dir is not None:
+                checked_paths.append((bias_dir / requested_path).resolve())
+            checked_paths.append((run_root / requested_path).resolve())
+        checked = ", ".join(str(path) for path in checked_paths)
+        missing_details.append(f"- {key} (checked: {checked})")
+
+    if missing_details:
+        raise FileNotFoundError(
+            f"Required outputs are missing for nextnano run {run_root}:\n"
+            + "\n".join(missing_details)
+        )
+
+    return run_root
+
+
 def discover_sweep_runs(
     sweep_root: str | Path,
     sweep_variable: str,
@@ -4711,4 +4810,5 @@ __all__ = [
     "sanitize_run_component",
     "save_input_file",
     "set_input_variables",
+    "validate_run_directory",
 ]

@@ -20,7 +20,7 @@ $V_OC_R           = 0 # (V) generated
 $strain  = 1
 $poisson = 1
 $quantum = 0
-$quantum_poisson =  1
+$quantum_poisson =  0
 
 $decomposition = 0            # use decomposition algorithm to solve 3D quantum poisson if set to 1 (quantization on the z direction)
 

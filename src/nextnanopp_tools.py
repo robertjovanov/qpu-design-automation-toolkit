@@ -37,6 +37,19 @@ import pandas as pd
 DEFAULT_PRODUCT = "nextnano++"
 _LABEL_RE = re.compile(r"^(?P<name>[^\[]+?)(?:\[(?P<unit>[^\]]*)\])?$")
 _REGION_COLUMN_RE = re.compile(r"^region_(?P<index>\d+)(?:\[(?P<unit>[^\]]*)\])?$")
+_SWEEP_NUMBER_TOKEN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+_SWEEP_RUN_COLUMNS = (
+    "sweep_variable",
+    "sweep_value",
+    "run_root",
+    "run_name",
+    "value_source",
+    "bias_dir",
+    "complete",
+    "required_outputs",
+    "outputs_available",
+    "error",
+)
 
 
 @dataclass(frozen=True)
@@ -1633,6 +1646,261 @@ def find_sweep_subrun(sweep_root: str | Path, **variable_values: Any) -> Path:
     if len(matches) > 1:
         raise RuntimeError(f"Multiple sweep subruns matched {variable_values}: {[m.name for m in matches]}")
     return matches[0]
+
+
+def _metadata_sweep_value(run_root: Path, sweep_variable: str) -> tuple[float | None, str | None]:
+    metadata_path = run_root / "variables_input.txt"
+    if not metadata_path.is_file():
+        return None, None
+
+    variable = re.escape(sweep_variable)
+    variable_reference = re.compile(
+        rf"^\s*\$\s*{variable}(?![A-Za-z0-9_])"
+    )
+    assignment = re.compile(
+        rf"^\s*\$\s*{variable}\s*=\s*(?P<value>{_SWEEP_NUMBER_TOKEN})\s*(?:#.*)?$"
+    )
+
+    try:
+        lines = metadata_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        return None, f"Could not read {metadata_path}: {exc}"
+
+    values: list[float] = []
+    errors: list[str] = []
+    for line_number, line in enumerate(lines, start=1):
+        if variable_reference.match(line) is None:
+            continue
+        match = assignment.match(line)
+        if match is None:
+            errors.append(
+                f"Malformed assignment for '{sweep_variable}' in {metadata_path} "
+                f"at line {line_number}: {line.strip()!r}"
+            )
+            continue
+
+        value = float(match.group("value"))
+        if not np.isfinite(value):
+            errors.append(
+                f"Non-finite assignment for '{sweep_variable}' in {metadata_path} "
+                f"at line {line_number}: {line.strip()!r}"
+            )
+            continue
+        values.append(value)
+
+    unique_values = set(values)
+    if len(unique_values) > 1:
+        rendered = ", ".join(f"{value:g}" for value in sorted(unique_values))
+        errors.append(
+            f"Conflicting duplicate assignments for '{sweep_variable}' in "
+            f"{metadata_path}: {rendered}"
+        )
+        return None, "; ".join(errors)
+    if unique_values:
+        return values[0], "; ".join(errors) or None
+    return None, "; ".join(errors) or None
+
+
+def _folder_sweep_value(folder_name: str, sweep_variable: str) -> float | None:
+    if "__" not in folder_name:
+        return None
+    sweep_suffix = folder_name.rsplit("__", maxsplit=1)[1]
+
+    token = re.compile(
+        rf"{re.escape(sweep_variable)}_(?P<value>{_SWEEP_NUMBER_TOKEN})(?=_|$)"
+    )
+    preceding_number = re.compile(rf"(?:^|_){_SWEEP_NUMBER_TOKEN}$")
+
+    values: list[float] = []
+    for match in token.finditer(sweep_suffix):
+        start = match.start()
+        has_primary_boundary = start == 0
+        has_later_variable_boundary = (
+            start > 0
+            and sweep_suffix[start - 1] == "_"
+            and preceding_number.search(sweep_suffix[: start - 1]) is not None
+        )
+        if not has_primary_boundary and not has_later_variable_boundary:
+            continue
+
+        value = float(match.group("value"))
+        if not np.isfinite(value):
+            raise ValueError(
+                f"Folder {folder_name!r} contains a non-finite value for "
+                f"'{sweep_variable}'."
+            )
+        values.append(value)
+
+    unique_values = set(values)
+    if len(unique_values) > 1:
+        rendered = ", ".join(f"{value:g}" for value in sorted(unique_values))
+        raise ValueError(
+            f"Folder {folder_name!r} contains conflicting values for "
+            f"'{sweep_variable}': {rendered}"
+        )
+    return values[0] if values else None
+
+
+def _find_required_outputs(
+    run_root: Path,
+    bias_dir: Path | None,
+    required_outputs: Sequence[str | Path],
+) -> dict[str, Path | None]:
+    resolved_outputs: dict[str, Path | None] = {}
+    for requested_output in required_outputs:
+        key = str(requested_output)
+        requested_path = _coerce_path(requested_output).expanduser()
+        if requested_path.is_absolute():
+            candidates = [requested_path]
+        else:
+            candidates = []
+            if bias_dir is not None:
+                candidates.append(bias_dir / requested_path)
+            candidates.append(run_root / requested_path)
+
+        resolved_outputs[key] = next(
+            (
+                candidate.resolve()
+                for candidate in candidates
+                if candidate.resolve().is_file()
+            ),
+            None,
+        )
+    return resolved_outputs
+
+
+def discover_sweep_runs(
+    sweep_root: str | Path,
+    sweep_variable: str,
+    *,
+    bias: str | int | None = "first",
+    required_outputs: Sequence[str | Path] = (),
+    strict: bool = True,
+) -> pd.DataFrame:
+    """Discover and describe the immediate run directories in a nextnano sweep.
+
+    Exact assignments in ``variables_input.txt`` take precedence over the
+    strict ``<variable>_<number>`` folder token used by nextnanopy. Relative
+    required outputs are checked beneath the selected bias first and then the
+    run root; absolute outputs are checked directly. Strict mode raises for
+    malformed, missing, or duplicate values and missing biases, while
+    non-strict mode retains rows and records those problems in ``error``.
+    """
+    if not isinstance(sweep_variable, str) or not sweep_variable:
+        raise ValueError("sweep_variable must be a non-empty string.")
+
+    root = _coerce_path(sweep_root).expanduser().resolve()
+    if not root.exists():
+        raise FileNotFoundError(f"Sweep root does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Sweep root is not a directory: {root}")
+
+    rows: list[dict[str, Any]] = []
+    candidates = sorted(
+        (
+            child
+            for child in root.iterdir()
+            if child.is_dir() and not child.name.startswith(".")
+        ),
+        key=lambda child: child.name,
+    )
+
+    for candidate in candidates:
+        run_root = resolve_run_root(candidate).resolve()
+        errors: list[str] = []
+        sweep_value: float = np.nan
+        value_source: str | None = None
+
+        metadata_value, metadata_error = _metadata_sweep_value(run_root, sweep_variable)
+        if metadata_error is not None:
+            contextual_error = f"Run '{run_root.name}': {metadata_error}"
+            if strict:
+                raise ValueError(contextual_error)
+            errors.append(contextual_error)
+
+        if metadata_value is not None:
+            sweep_value = metadata_value
+            value_source = "variables_input"
+        else:
+            try:
+                folder_value = _folder_sweep_value(candidate.name, sweep_variable)
+            except ValueError as exc:
+                contextual_error = f"Run '{run_root.name}': {exc}"
+                if strict:
+                    raise ValueError(contextual_error) from exc
+                errors.append(contextual_error)
+                folder_value = None
+
+            if folder_value is not None:
+                sweep_value = folder_value
+                value_source = "folder_name"
+            elif not errors:
+                contextual_error = (
+                    f"Run '{run_root.name}': could not determine sweep variable "
+                    f"'{sweep_variable}' from variables_input.txt or the folder name."
+                )
+                if strict:
+                    raise ValueError(contextual_error)
+                errors.append(contextual_error)
+
+        try:
+            bias_dir = get_bias_dir(run_root, bias=bias).resolve()
+        except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+            contextual_error = (
+                f"Run '{run_root.name}': could not select bias {bias!r}: {exc}"
+            )
+            if strict:
+                raise FileNotFoundError(contextual_error) from exc
+            errors.append(contextual_error)
+            bias_dir = None
+
+        output_paths = _find_required_outputs(run_root, bias_dir, required_outputs)
+        rows.append(
+            {
+                "sweep_variable": sweep_variable,
+                "sweep_value": sweep_value,
+                "run_root": run_root,
+                "run_name": run_root.name,
+                "value_source": value_source,
+                "bias_dir": bias_dir,
+                "complete": (run_root / "job_done.txt").is_file(),
+                "required_outputs": output_paths,
+                "outputs_available": all(path is not None for path in output_paths.values()),
+                "error": "; ".join(errors) or None,
+            }
+        )
+
+    frame = pd.DataFrame(rows, columns=_SWEEP_RUN_COLUMNS)
+    frame["sweep_value"] = pd.to_numeric(frame["sweep_value"], errors="coerce")
+    frame["complete"] = frame["complete"].astype(bool)
+    frame["outputs_available"] = frame["outputs_available"].astype(bool)
+
+    duplicate_mask = frame["sweep_value"].notna() & frame["sweep_value"].duplicated(keep=False)
+    if duplicate_mask.any():
+        duplicate_groups = frame.loc[duplicate_mask].groupby("sweep_value", sort=True)
+        details = []
+        for value, group in duplicate_groups:
+            run_names = ", ".join(group["run_name"].tolist())
+            details.append(f"{value:g}: {run_names}")
+        duplicate_error = (
+            f"Duplicate sweep values for '{sweep_variable}' under {root}: "
+            + "; ".join(details)
+        )
+        if strict:
+            raise ValueError(duplicate_error)
+        for index in frame.index[duplicate_mask]:
+            existing_error = frame.at[index, "error"]
+            frame.at[index, "error"] = (
+                f"{existing_error}; {duplicate_error}"
+                if existing_error
+                else duplicate_error
+            )
+
+    return frame.sort_values(
+        "sweep_value",
+        kind="stable",
+        na_position="last",
+    ).reset_index(drop=True)
 
 
 def extract_linecut(
@@ -3934,6 +4202,7 @@ __all__ = [
     "build_sweep",
     "convergence_summary",
     "describe_output_file",
+    "discover_sweep_runs",
     "extract_linecut",
     "extract_plane",
     "find_latest_run",

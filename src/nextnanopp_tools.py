@@ -820,7 +820,7 @@ def load_vtr_plane(
         dataset = _load_vtr_dataset(file_path, variable_names=[raw_variable_name])
         return extract_plane(
             dataset,
-            variable=raw_variable_name,
+            variable=None,
             slice_axis=slice_name,
             slice_value=slice_value,
             slice_index=slice_index,
@@ -894,7 +894,7 @@ def load_vtr_linecut(
         dataset = _load_vtr_dataset(file_path, variable_names=[raw_variable_name])
         return extract_linecut(
             dataset,
-            variable=raw_variable_name,
+            variable=None,
             axis=axis_name,
             fixed_coords=fixed_coords,
             prefer_nextnanopy=False,

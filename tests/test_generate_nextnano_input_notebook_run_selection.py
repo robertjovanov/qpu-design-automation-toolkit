@@ -295,38 +295,77 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             self.combined_code,
         )
 
-    def test_central_run_configuration_and_required_outputs(self):
-        config_names = (
+    def test_user_controls_and_internal_run_configuration(self):
+        user_control_headings = [
+            index
+            for index, cell in enumerate(self.cells)
+            if cell["cell_type"] == "markdown"
+            and any(
+                line.strip() == "## User controls"
+                for line in cell_source(cell).splitlines()
+            )
+        ]
+        self.assertEqual(len(user_control_headings), 1)
+        user_heading_index = user_control_headings[0]
+        self.assertLess(user_heading_index + 1, len(self.cells))
+
+        user_cell_index = user_heading_index + 1
+        user_cell = self.cells[user_cell_index]
+        self.assertEqual(user_cell["cell_type"], "code")
+        user_tree = self.trees[user_cell_index]
+        self.assertEqual(len(user_tree.body), 5)
+        self.assertTrue(
+            all(isinstance(node, ast.Assign) for node in user_tree.body)
+        )
+
+        expected_control_names = (
             "RUN_SIMULATION",
-            "RUN_TAG",
+            "RUN_DIRECTORY",
             "BIAS",
             "ANALYSE_QUANTUM_OUTPUTS",
+            "EXPORT_FIGURES",
+        )
+        self.assertEqual(
+            tuple(assignment_name(node) for node in user_tree.body),
+            expected_control_names,
+        )
+        user_assignments = {
+            assignment_name(node): assignment_value(node)
+            for node in user_tree.body
+        }
+        self.assertIs(ast.literal_eval(user_assignments["RUN_SIMULATION"]), False)
+        self.assertEqual(ast.literal_eval(user_assignments["BIAS"]), "bias_00000")
+        self.assertIs(
+            ast.literal_eval(user_assignments["ANALYSE_QUANTUM_OUTPUTS"]),
+            True,
+        )
+        self.assertIs(ast.literal_eval(user_assignments["EXPORT_FIGURES"]), False)
+
+        run_directory_value = user_assignments["RUN_DIRECTORY"]
+        self.assertIsInstance(run_directory_value, ast.Call)
+        self.assertEqual(ast.unparse(run_directory_value.func), "Path")
+        self.assertEqual(
+            ast.literal_eval(run_directory_value.args[0]),
+            "path/to/completed/run",
+        )
+        self.assertEqual(run_directory_value.keywords, [])
+        self.assertFalse(
+            Path(ast.literal_eval(run_directory_value.args[0])).is_absolute()
+        )
+
+        internal_names = (
+            "RUN_TAG",
             "SIMULATION_OUTPUT_ROOT",
             "SIMULATION_STAGING_ROOT",
             "BASE_REQUIRED_OUTPUTS",
             "QUANTUM_REQUIRED_OUTPUTS",
             "REQUIRED_OUTPUTS",
         )
-        config_cells = {
-            self.one_top_assignment(name)[0] for name in config_names
-        }
+        for name in internal_names:
+            with self.subTest(internal_setting=name):
+                index, _ = self.one_top_assignment(name)
+                self.assertNotEqual(index, user_cell_index)
 
-        run_directory_initial = [
-            (index, node)
-            for index, node in self.top_assignments.get("RUN_DIRECTORY", [])
-            if isinstance(node, ast.AnnAssign)
-        ]
-        self.assertEqual(len(run_directory_initial), 1)
-        config_cells.add(run_directory_initial[0][0])
-        self.assertEqual(len(config_cells), 1)
-        config_cell = config_cells.pop()
-
-        self.assertIs(
-            ast.literal_eval(
-                assignment_value(self.one_top_assignment("RUN_SIMULATION")[1])
-            ),
-            False,
-        )
         self.assertEqual(
             ast.literal_eval(
                 assignment_value(self.one_top_assignment("RUN_TAG")[1])
@@ -344,27 +383,6 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
                 )
             ),
             True,
-        )
-
-        _, run_directory_node = run_directory_initial[0]
-        self.assertEqual(ast.unparse(run_directory_node.annotation), "Path | None")
-        self.assertIsNone(ast.literal_eval(run_directory_node.value))
-        config_source = self.code_sources[config_cell]
-        self.assertIn(
-            "RUN_SIMULATION=True and leave RUN_DIRECTORY=None",
-            config_source,
-        )
-        self.assertIn(
-            "RUN_SIMULATION=False and set RUN_DIRECTORY",
-            config_source,
-        )
-        self.assertIn(
-            "True: require and analyse HH quantum outputs.",
-            config_source,
-        )
-        self.assertIn(
-            "False: allow a classical-only run and skip the quantum section.",
-            config_source,
         )
 
         base_required_outputs = ast.literal_eval(
@@ -582,11 +600,55 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             "Set RUN_DIRECTORY=None when RUN_SIMULATION=True.",
             "if not GENERATED_INPUT_PATH.is_file():",
             "FileNotFoundError",
-            "elif RUN_DIRECTORY is None:",
+            "if RUN_DIRECTORY is None:",
             "Set RUN_DIRECTORY to an explicit completed run when RUN_SIMULATION=False.",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, selection_source)
+
+        self.assertEqual(len(selection.orelse), 1)
+        self.assertIsInstance(selection.orelse[0], ast.If)
+        self.assertEqual(
+            ast.unparse(selection.orelse[0].test),
+            "RUN_DIRECTORY is None",
+        )
+
+        run_section_headings = [
+            index
+            for index, cell in enumerate(self.cells)
+            if cell["cell_type"] == "markdown"
+            and any(
+                line.strip() == "## Run or select completed output"
+                for line in cell_source(cell).splitlines()
+            )
+        ]
+        self.assertEqual(len(run_section_headings), 1)
+        run_section_start = run_section_headings[0]
+        next_h2 = next(
+            (
+                index
+                for index, cell in enumerate(self.cells[run_section_start + 1 :],
+                                             start=run_section_start + 1)
+                if cell["cell_type"] == "markdown"
+                and any(
+                    line.startswith("## ") and not line.startswith("### ")
+                    for line in cell_source(cell).splitlines()
+                )
+            ),
+            len(self.cells),
+        )
+        self.assertTrue(run_section_start < selection_index < next_h2)
+        run_or_select_code_indices = [
+            index
+            for index in range(run_section_start + 1, next_h2)
+            if index in self.trees
+            and any(
+                isinstance(node, ast.If)
+                and ast.unparse(node.test) == "RUN_SIMULATION"
+                for node in self.trees[index].body
+            )
+        ]
+        self.assertEqual(run_or_select_code_indices, [selection_index])
 
         run_calls = self.calls_named("run_input_file")
         self.assertEqual(len(run_calls), 1)
@@ -894,18 +956,21 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
                     expected,
                 )
 
-        _, default_axis = self.one_top_assignment("DEFAULT_1D_LINE_AXIS")
-        self.assertEqual(
-            ast.unparse(assignment_value(default_axis)),
-            "LINE_AXIS",
-        )
-        _, default_fixed_coords = self.one_top_assignment(
-            "DEFAULT_1D_LINE_FIXED_COORDS"
-        )
-        self.assertEqual(
-            ast.unparse(assignment_value(default_fixed_coords)),
-            "dict(LINE_FIXED_COORDINATES)",
-        )
+        for obsolete_name in (
+            "DEFAULT_1D_LINE_AXIS",
+            "DEFAULT_1D_LINE_FIXED_COORDS",
+            "QW_PLANE_Z_NM",
+            "LINE_FIXED_COORDINATES",
+        ):
+            with self.subTest(obsolete_name=obsolete_name):
+                self.assertNotIn(obsolete_name, self.top_assignments)
+                self.assertIsNone(
+                    re.search(
+                        rf"(?<![A-Za-z0-9_]){re.escape(obsolete_name)}"
+                        rf"(?![A-Za-z0-9_])",
+                        self.combined_source,
+                    )
+                )
 
     def test_notebook_is_path_safe_and_has_no_stored_outputs(self):
         self.assertNotIn("/Users/robertjovanov/", self.combined_source)

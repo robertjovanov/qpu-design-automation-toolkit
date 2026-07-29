@@ -22,9 +22,12 @@ EXPECTED_BASE_THESIS_FIGURES = {
     "classical_hole_density_xy_qw": "HOLE_DENSITY_PLANE_FIGURE",
     "classical_hole_density_x_cut": "HOLE_DENSITY_LINE_FIGURE",
     "electrostatic_potential_xy_qw": "POTENTIAL_PLANE_FIGURE",
+    "electrostatic_potential_xz_center": "POTENTIAL_XZ_PLANE_FIGURE",
     "electrostatic_potential_x_cut": "POTENTIAL_LINE_FIGURE",
     "hh_bandedge_xy_qw": "HH_BAND_PLANE_FIGURE",
+    "hh_bandedge_xz_center": "HH_BAND_XZ_PLANE_FIGURE",
     "hh_bandedge_x_cut": "HH_BAND_LINE_FIGURE",
+    "hh_bandedge_z_cut_x_1150": "HH_BAND_Z_LINE_FIGURE",
 }
 
 EXPECTED_QUANTUM_THESIS_FIGURES = {
@@ -47,36 +50,28 @@ OPTIONAL_FIGURE_NAMES = {
 }
 
 EXPECTED_STATIC_CALL_TARGETS = {
-    ("plot_structure_plane", "regions_all_2d_xy_QW", None):
-        "HORIZONTAL_STRUCTURE_FIGURE",
-    ("plot_structure_plane", "materials_2d_xz_QW", None):
-        "VERTICAL_STRUCTURE_FIGURE",
-    ("plot_convergence", None, None): "CONVERGENCE_FIGURE",
-    ("plot_integrated_density_hole", None, None):
-        "INTEGRATED_HOLE_DENSITY_FIGURE",
-    ("plot_total_charges", None, None): "TOTAL_CHARGES_FIGURE",
-    ("plot_bias_volume_slice", "density_hole", "HOLE_DENSITY_VARIABLE"):
-        "HOLE_DENSITY_PLANE_FIGURE",
-    ("plot_bias_volume_linecut", "density_hole", "HOLE_DENSITY_VARIABLE"):
-        "HOLE_DENSITY_LINE_FIGURE",
-    ("plot_bias_volume_slice", "potential", "POTENTIAL_VARIABLE"):
-        "POTENTIAL_PLANE_FIGURE",
-    ("plot_bias_volume_linecut", "potential", "POTENTIAL_VARIABLE"):
-        "POTENTIAL_LINE_FIGURE",
-    ("plot_bias_volume_slice", "bandedges", "HH_BAND_VARIABLE"):
-        "HH_BAND_PLANE_FIGURE",
-    ("plot_bias_volume_linecut", "bandedges", "HH_BAND_VARIABLE"):
-        "HH_BAND_LINE_FIGURE",
-    ("plot_quantum_density_volume_slice", None, None):
-        "QUANTUM_DENSITY_PLANE_FIGURE",
-    ("plot_quantum_density_volume_linecut", None, None):
-        "QUANTUM_DENSITY_LINE_FIGURE",
-    ("plot_quantum_probability_volume_slice", None, None):
-        "QUANTUM_PROBABILITY_PLANE_FIGURE",
-    ("plot_quantum_probability_volume_linecut", None, None):
-        "QUANTUM_PROBABILITY_LINE_FIGURE",
-    ("plot_quantum_occupation", None, None): "QUANTUM_OCCUPATION_FIGURE",
-    ("plot_quantum_energy_spectrum", None, None): "QUANTUM_ENERGY_FIGURE",
+    "HORIZONTAL_STRUCTURE_FIGURE": "plot_structure_plane",
+    "VERTICAL_STRUCTURE_FIGURE": "plot_structure_plane",
+    "CONVERGENCE_FIGURE": "plot_convergence",
+    "INTEGRATED_HOLE_DENSITY_FIGURE": "plot_integrated_density_hole",
+    "TOTAL_CHARGES_FIGURE": "plot_total_charges",
+    "HOLE_DENSITY_PLANE_FIGURE": "plot_bias_volume_slice",
+    "HOLE_DENSITY_LINE_FIGURE": "plot_bias_volume_linecut",
+    "POTENTIAL_PLANE_FIGURE": "plot_bias_volume_slice",
+    "POTENTIAL_XZ_PLANE_FIGURE": "plot_bias_volume_slice",
+    "POTENTIAL_LINE_FIGURE": "plot_bias_volume_linecut",
+    "HH_BAND_PLANE_FIGURE": "plot_bias_volume_slice",
+    "HH_BAND_XZ_PLANE_FIGURE": "plot_bias_volume_slice",
+    "HH_BAND_LINE_FIGURE": "plot_bias_volume_linecut",
+    "HH_BAND_Z_LINE_FIGURE": "plot_bias_volume_linecut",
+    "QUANTUM_DENSITY_PLANE_FIGURE": "plot_quantum_density_volume_slice",
+    "QUANTUM_DENSITY_LINE_FIGURE": "plot_quantum_density_volume_linecut",
+    "QUANTUM_PROBABILITY_PLANE_FIGURE":
+        "plot_quantum_probability_volume_slice",
+    "QUANTUM_PROBABILITY_LINE_FIGURE":
+        "plot_quantum_probability_volume_linecut",
+    "QUANTUM_OCCUPATION_FIGURE": "plot_quantum_occupation",
+    "QUANTUM_ENERGY_FIGURE": "plot_quantum_energy_spectrum",
 }
 
 
@@ -181,7 +176,8 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
         final_headings = [
             index
             for index, source in cls.markdown_sources.items()
-            if "figure export" in source.casefold()
+            if source.lstrip().splitlines()[0].strip().casefold()
+            == "## figure export"
         ]
         if len(final_headings) != 1:
             raise AssertionError(
@@ -293,41 +289,20 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
             mapping[stem] = value.id
         return mapping
 
-    def find_static_call(self, api, quantity, variable):
+    def assigned_call(self, target, api):
         matches = []
-        for _, call in self.calls_named(api):
-            keywords = keyword_map(call)
-
-            actual_quantity = None
-            if api == "plot_structure_plane":
-                quantity_node = keywords.get("quantity")
-                actual_quantity = (
-                    ast.literal_eval(quantity_node)
-                    if quantity_node is not None
-                    else None
-                )
-            elif api in {"plot_bias_volume_slice", "plot_bias_volume_linecut"}:
-                quantity_node = call.args[1] if len(call.args) > 1 else None
-                actual_quantity = (
-                    ast.literal_eval(quantity_node)
-                    if isinstance(quantity_node, ast.Constant)
-                    else None
-                )
-
-            variable_node = keywords.get("variable")
-            actual_variable = (
-                ast.unparse(variable_node) if variable_node is not None else None
-            )
-            if (
-                (quantity is None or actual_quantity == quantity)
-                and (variable is None or actual_variable == variable)
-            ):
-                matches.append(call)
+        for index, tree in self.trees.items():
+            for node in ast.walk(tree):
+                if assignment_name(node) != target:
+                    continue
+                value = assignment_value(node)
+                if isinstance(value, ast.Call) and call_name(value) == api:
+                    matches.append((index, value))
 
         self.assertEqual(
             len(matches),
             1,
-            f"Expected one {api} call for quantity={quantity}, variable={variable}",
+            f"Expected one {target} assignment from {api}",
         )
         return matches[0]
 
@@ -414,21 +389,29 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
         self.assertIs(ast.literal_eval(mkdir_keywords["parents"]), True)
         self.assertIs(ast.literal_eval(mkdir_keywords["exist_ok"]), True)
 
-        config_indices = {
+        export_control_index = self.one_top_assignment("EXPORT_FIGURES")[0]
+        export_setting_indices = {
             self.one_top_assignment(name)[0]
             for name in (
-                "EXPORT_FIGURES",
                 "FIGURE_OUTPUT_ROOT",
                 "FIGURE_DIRECTORY",
                 "FIGURE_FORMATS",
                 "FIGURE_PNG_DPI",
             )
         }
+        self.assertLess(export_control_index, self.final_section_start)
+        self.assertEqual(len(export_setting_indices), 1)
         self.assertTrue(
-            all(index < self.final_section_start for index in config_indices)
+            all(
+                index > self.final_section_start
+                for index in export_setting_indices
+            )
         )
         self.assertFalse(
-            any(index in config_indices for index, _ in self.calls_named("mkdir"))
+            any(
+                index in export_setting_indices
+                for index, _ in self.calls_named("mkdir")
+            )
         )
 
     def test_default_static_figures_are_assigned_and_still_displayed(self):
@@ -440,11 +423,9 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
             if isinstance(node, ast.Name)
         }
 
-        for descriptor, expected_target in EXPECTED_STATIC_CALL_TARGETS.items():
-            api, quantity, variable = descriptor
-            call = self.find_static_call(api, quantity, variable)
-            with self.subTest(api=api, quantity=quantity, variable=variable):
-                self.assertEqual(self.assigned_target(call), expected_target)
+        for expected_target, api in EXPECTED_STATIC_CALL_TARGETS.items():
+            index, call = self.assigned_call(expected_target, api)
+            with self.subTest(api=api, target=expected_target):
                 self.assertIn(expected_target, displayed_names)
                 keywords = keyword_map(call)
                 self.assertIn("interactive", keywords)
@@ -452,6 +433,25 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
                     ast.literal_eval(keywords["interactive"]),
                     False,
                 )
+
+                if expected_target == "HORIZONTAL_STRUCTURE_FIGURE":
+                    self.assertIn(
+                        'QUANTITY = "regions_all_2d_xy_QD"',
+                        self.code_sources[index],
+                    )
+                    self.assertEqual(
+                        ast.unparse(keywords["quantity"]),
+                        "QUANTITY",
+                    )
+                elif expected_target == "VERTICAL_STRUCTURE_FIGURE":
+                    self.assertIn(
+                        'QUANTITY = "materials_2d_xz_QD"',
+                        self.code_sources[index],
+                    )
+                    self.assertEqual(
+                        ast.unparse(keywords["quantity"]),
+                        "QUANTITY",
+                    )
 
         captured_plot_apis = {
             "plot_structure_plane",
@@ -709,9 +709,10 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
             "run_directory",
             "bias",
             "generated_input_path",
-            "qw_plane_z_nm",
-            "line_axis",
-            "line_fixed_coordinates_nm",
+            "xy_plane_z_nm",
+            "xz_plane_y_nm",
+            "x_line_fixed_coordinates_nm",
+            "z_line_fixed_coordinates_nm",
             "analyse_quantum_outputs",
             "quantum",
             "figure_files",
@@ -754,16 +755,39 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
         self.assertIn("RUN_SIMULATION", generated_input_source)
         self.assertIn("else None", generated_input_source)
         self.assertEqual(
-            ast.unparse(manifest_mapping["qw_plane_z_nm"]),
-            "QW_PLANE_Z_NM",
+            ast.unparse(manifest_mapping["xy_plane_z_nm"]),
+            "XY_PLANE_Z_NM",
         )
         self.assertEqual(
-            ast.unparse(manifest_mapping["line_axis"]),
-            "LINE_AXIS",
+            ast.unparse(manifest_mapping["xz_plane_y_nm"]),
+            "XZ_PLANE_Y_NM",
         )
-        self.assertIn(
-            "LINE_FIXED_COORDINATES",
-            ast.unparse(manifest_mapping["line_fixed_coordinates_nm"]),
+        x_line_mapping = {
+            ast.literal_eval(key): ast.unparse(value)
+            for key, value in dict_items(
+                manifest_mapping["x_line_fixed_coordinates_nm"]
+            )
+        }
+        self.assertEqual(
+            x_line_mapping,
+            {"y": "X_LINE_Y_NM", "z": "X_LINE_Z_NM"},
+        )
+        z_line_mapping = {
+            ast.literal_eval(key): ast.unparse(value)
+            for key, value in dict_items(
+                manifest_mapping["z_line_fixed_coordinates_nm"]
+            )
+        }
+        self.assertEqual(
+            z_line_mapping,
+            {"x": "Z_LINE_X_NM", "y": "Z_LINE_Y_NM"},
+        )
+        self.assertTrue(
+            {
+                "qw_plane_z_nm",
+                "line_axis",
+                "line_fixed_coordinates_nm",
+            }.isdisjoint(manifest_mapping)
         )
         self.assertEqual(
             ast.unparse(manifest_mapping["analyse_quantum_outputs"]),
@@ -807,9 +831,12 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
         required_names = {
             "RUN_DIRECTORY",
             "BIAS",
-            "QW_PLANE_Z_NM",
-            "LINE_AXIS",
-            "LINE_FIXED_COORDINATES",
+            "XY_PLANE_Z_NM",
+            "XZ_PLANE_Y_NM",
+            "X_LINE_Y_NM",
+            "X_LINE_Z_NM",
+            "Z_LINE_X_NM",
+            "Z_LINE_Y_NM",
             "ANALYSE_QUANTUM_OUTPUTS",
             "THESIS_FIGURES",
             "FIGURE_DIRECTORY",
@@ -857,17 +884,28 @@ class GenerateNextnanoInputNotebookFigureExportTests(unittest.TestCase):
         self.assertIn("RUN_DIRECTORY", self.top_assignments)
         self.assertEqual(len(self.calls_named("validate_run_directory")), 1)
 
-        normalized_markdown = "\n".join(
-            self.markdown_sources.values()
-        ).casefold()
-        for heading in (
-            "simulated structure and run diagnostics",
-            "classical physical outputs",
-            "quantum outputs",
-            "figure export",
-        ):
-            with self.subTest(heading=heading):
-                self.assertIn(heading, normalized_markdown)
+        h2_headings = [
+            line.removeprefix("## ").strip()
+            for source in self.markdown_sources.values()
+            for line in source.splitlines()
+            if line.startswith("## ")
+        ]
+        self.assertEqual(
+            h2_headings,
+            [
+                "Setup",
+                "User controls",
+                "Device layout",
+                "Process stack and simulation layout",
+                "Input generation",
+                "Run or select completed output",
+                "Structure and diagnostics",
+                "Classical outputs",
+                "Quantum outputs",
+                "Figure export",
+                "Summary",
+            ],
+        )
 
         definitions = {
             node.name

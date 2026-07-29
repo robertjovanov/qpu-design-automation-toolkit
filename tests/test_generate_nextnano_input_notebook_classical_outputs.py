@@ -30,22 +30,127 @@ EXPECTED_QUANTUM_REQUIRED_OUTPUTS = (
     "Quantum/c-Ge_QW/HH/energy_spectrum_k00000.dat",
 )
 
-PRIMARY_CLASSICAL_OUTPUTS = {
-    ("density_hole", "Hole_density"),
-    ("potential", "Potential"),
-    ("bandedges", "HH"),
-}
-
-PRIMARY_METADATA_OUTPUTS = {
-    ("DENSITY_HOLE_VTR", "Hole_density"),
-    ("POTENTIAL_VTR", "Potential"),
-    ("BANDEDGES_VTR", "HH"),
-}
-
-PRIMARY_METADATA_PATHS = {
-    ("density_hole", "Hole_density"): "DENSITY_HOLE_VTR",
-    ("potential", "Potential"): "POTENTIAL_VTR",
-    ("bandedges", "HH"): "BANDEDGES_VTR",
+DEFAULT_CLASSICAL_FIGURES = {
+    "HOLE_DENSITY_PLANE_FIGURE": {
+        "plot_api": "plot_bias_volume_slice",
+        "loader_api": "load_vtr_plane",
+        "data_name": "HOLE_DENSITY_PLANE_DATA",
+        "path": "DENSITY_HOLE_VTR",
+        "quantity": "density_hole",
+        "variable": "Hole_density",
+        "axis_name": "SLICE_AXIS",
+        "axis": "z",
+        "coordinate_name": "SLICE_COORDINATE_NM",
+        "coordinate": "XY_PLANE_Z_NM",
+    },
+    "HOLE_DENSITY_LINE_FIGURE": {
+        "plot_api": "plot_bias_volume_linecut",
+        "loader_api": "load_vtr_linecut",
+        "data_name": "HOLE_DENSITY_LINE_DATA",
+        "path": "DENSITY_HOLE_VTR",
+        "quantity": "density_hole",
+        "variable": "Hole_density",
+        "axis_name": "LINE_AXIS",
+        "axis": "x",
+        "coordinate_name": "FIXED_COORDINATES_NM",
+        "coordinates": {
+            "y": "X_LINE_Y_NM",
+            "z": "X_LINE_Z_NM",
+        },
+    },
+    "POTENTIAL_PLANE_FIGURE": {
+        "plot_api": "plot_bias_volume_slice",
+        "loader_api": "load_vtr_plane",
+        "data_name": "POTENTIAL_PLANE_DATA",
+        "path": "POTENTIAL_VTR",
+        "quantity": "potential",
+        "variable": "Potential",
+        "axis_name": "SLICE_AXIS",
+        "axis": "z",
+        "coordinate_name": "SLICE_COORDINATE_NM",
+        "coordinate": "XY_PLANE_Z_NM",
+    },
+    "POTENTIAL_XZ_PLANE_FIGURE": {
+        "plot_api": "plot_bias_volume_slice",
+        "loader_api": "load_vtr_plane",
+        "data_name": "POTENTIAL_XZ_PLANE_DATA",
+        "path": "POTENTIAL_VTR",
+        "quantity": "potential",
+        "variable": "Potential",
+        "axis_name": "SLICE_AXIS",
+        "axis": "y",
+        "coordinate_name": "SLICE_COORDINATE_NM",
+        "coordinate": "XZ_PLANE_Y_NM",
+    },
+    "POTENTIAL_LINE_FIGURE": {
+        "plot_api": "plot_bias_volume_linecut",
+        "loader_api": "load_vtr_linecut",
+        "data_name": "POTENTIAL_LINE_DATA",
+        "path": "POTENTIAL_VTR",
+        "quantity": "potential",
+        "variable": "Potential",
+        "axis_name": "LINE_AXIS",
+        "axis": "x",
+        "coordinate_name": "FIXED_COORDINATES_NM",
+        "coordinates": {
+            "y": "X_LINE_Y_NM",
+            "z": "X_LINE_Z_NM",
+        },
+    },
+    "HH_BAND_PLANE_FIGURE": {
+        "plot_api": "plot_bias_volume_slice",
+        "loader_api": "load_vtr_plane",
+        "data_name": "HH_BAND_PLANE_DATA",
+        "path": "BANDEDGES_VTR",
+        "quantity": "bandedges",
+        "variable": "HH",
+        "axis_name": "SLICE_AXIS",
+        "axis": "z",
+        "coordinate_name": "SLICE_COORDINATE_NM",
+        "coordinate": "XY_PLANE_Z_NM",
+    },
+    "HH_BAND_XZ_PLANE_FIGURE": {
+        "plot_api": "plot_bias_volume_slice",
+        "loader_api": "load_vtr_plane",
+        "data_name": "HH_BAND_XZ_PLANE_DATA",
+        "path": "BANDEDGES_VTR",
+        "quantity": "bandedges",
+        "variable": "HH",
+        "axis_name": "SLICE_AXIS",
+        "axis": "y",
+        "coordinate_name": "SLICE_COORDINATE_NM",
+        "coordinate": "XZ_PLANE_Y_NM",
+    },
+    "HH_BAND_LINE_FIGURE": {
+        "plot_api": "plot_bias_volume_linecut",
+        "loader_api": "load_vtr_linecut",
+        "data_name": "HH_BAND_LINE_DATA",
+        "path": "BANDEDGES_VTR",
+        "quantity": "bandedges",
+        "variable": "HH",
+        "axis_name": "LINE_AXIS",
+        "axis": "x",
+        "coordinate_name": "FIXED_COORDINATES_NM",
+        "coordinates": {
+            "y": "X_LINE_Y_NM",
+            "z": "X_LINE_Z_NM",
+        },
+    },
+    "HH_BAND_Z_LINE_FIGURE": {
+        "plot_api": "plot_bias_volume_linecut",
+        "loader_api": "load_vtr_linecut",
+        "data_name": "HH_BAND_Z_LINE_DATA",
+        "path": "BANDEDGES_VTR",
+        "quantity": "bandedges",
+        "variable": "HH",
+        "axis_name": "LINE_AXIS",
+        "axis": "z",
+        "coordinate_name": "FIXED_COORDINATES_NM",
+        "coordinates": {
+            "x": "Z_LINE_X_NM",
+            "y": "Z_LINE_Y_NM",
+        },
+    },
 }
 
 REMOVED_CLASSICAL_WRAPPERS = {
@@ -163,12 +268,15 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
         classical_headings = [
             index
             for index, source in markdown.items()
-            if "classical physical outputs" in source.lower()
+            if re.search(
+                r"^##(?!#)\s+Classical outputs\s*$",
+                source,
+                flags=re.MULTILINE,
+            )
         ]
         if len(classical_headings) != 1:
             raise AssertionError(
-                "Expected one markdown heading containing "
-                "'classical physical outputs'"
+                "Expected one H2 heading named 'Classical outputs'"
             )
         cls.classical_start = classical_headings[0]
 
@@ -261,6 +369,111 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
                     matches[id(value)] = (index, name)
         return matches
 
+    def one_cell_assignment(self, index, name):
+        matches = [
+            node
+            for node in ast.walk(self.trees[index])
+            if assignment_name(node) == name
+        ]
+        self.assertEqual(
+            len(matches),
+            1,
+            f"Expected one assignment to {name} in cell {index}",
+        )
+        return matches[0]
+
+    def assigned_call(self, target, api):
+        matches = []
+        for index, tree in self.classical_trees.items():
+            for node in ast.walk(tree):
+                if assignment_name(node) != target:
+                    continue
+                value = assignment_value(node)
+                if isinstance(value, ast.Call) and call_name(value) == api:
+                    matches.append((index, node, value))
+        self.assertEqual(
+            len(matches),
+            1,
+            f"Expected one {api} call assigned to {target}",
+        )
+        return matches[0]
+
+    def assert_local_plot_configuration(self, index, call, specification):
+        quantity = self.one_cell_assignment(index, "QUANTITY")
+        variable = self.one_cell_assignment(index, "VARIABLE")
+        axis = self.one_cell_assignment(index, specification["axis_name"])
+        coordinate = self.one_cell_assignment(
+            index,
+            specification["coordinate_name"],
+        )
+
+        for name, node in (
+            ("QUANTITY", quantity),
+            ("VARIABLE", variable),
+            (specification["axis_name"], axis),
+            (specification["coordinate_name"], coordinate),
+        ):
+            with self.subTest(cell=index, local=name):
+                self.assertLess(
+                    node.lineno,
+                    call.lineno,
+                    f"{name} must be defined before the plotting call",
+                )
+
+        self.assertEqual(
+            ast.literal_eval(assignment_value(quantity)),
+            specification["quantity"],
+        )
+        self.assertEqual(
+            ast.literal_eval(assignment_value(variable)),
+            specification["variable"],
+        )
+        self.assertEqual(
+            ast.literal_eval(assignment_value(axis)),
+            specification["axis"],
+        )
+
+        coordinate_value = assignment_value(coordinate)
+        if "coordinate" in specification:
+            self.assertEqual(
+                ast.unparse(coordinate_value),
+                specification["coordinate"],
+            )
+        else:
+            self.assertIsInstance(coordinate_value, ast.Dict)
+            coordinate_items = {
+                ast.literal_eval(key): ast.unparse(value)
+                for key, value in zip(
+                    coordinate_value.keys,
+                    coordinate_value.values,
+                )
+            }
+            self.assertEqual(
+                coordinate_items,
+                specification["coordinates"],
+            )
+
+        keywords = keyword_map(call)
+        self.assertEqual(ast.unparse(call.args[0]), "RUN_DIRECTORY")
+        self.assertEqual(ast.unparse(call.args[1]), "QUANTITY")
+        self.assertEqual(ast.unparse(keywords["bias"]), "BIAS")
+        self.assertEqual(ast.unparse(keywords["variable"]), "VARIABLE")
+        if specification["plot_api"] == "plot_bias_volume_slice":
+            self.assertEqual(
+                ast.unparse(keywords["slice_axis"]),
+                "SLICE_AXIS",
+            )
+            self.assertEqual(
+                ast.unparse(keywords["slice_value"]),
+                "SLICE_COORDINATE_NM",
+            )
+        else:
+            self.assertEqual(ast.unparse(keywords["axis"]), "LINE_AXIS")
+            self.assertEqual(
+                ast.unparse(keywords["fixed_coords"]),
+                "FIXED_COORDINATES_NM",
+            )
+
     def test_public_classical_apis_are_directly_imported(self):
         imported_by_module = {}
         aliases_by_module = {}
@@ -308,12 +521,16 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
 
     def test_classical_configuration_is_explicit_and_centralized(self):
         expected_literals = {
-            "QW_PLANE_Z_NM": -7.5,
-            "LINE_AXIS": "x",
+            "XY_PLANE_Z_NM": -4.0,
+            "XZ_PLANE_Y_NM": 0.0,
+            "X_LINE_Y_NM": 0.0,
+            "X_LINE_Z_NM": -4.0,
+            "Z_LINE_X_NM": 1150.0,
+            "Z_LINE_Y_NM": 0.0,
             "SHOW_OPTIONAL_CLASSICAL_3D": False,
             "SHOW_SECONDARY_BANDS": False,
             "SHOW_ELECTRON_DENSITY": False,
-            "HH_BAND_VARIABLE": "HH",
+            "SECONDARY_BAND_VARIABLES": ("LH", "SO"),
         }
         config_cells = set()
         for name, expected in expected_literals.items():
@@ -325,38 +542,31 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
                     expected,
                 )
 
-        fixed_index, fixed_node = self.one_top_assignment(
-            "LINE_FIXED_COORDINATES"
-        )
-        config_cells.add(fixed_index)
-        fixed_value = assignment_value(fixed_node)
-        self.assertIsInstance(fixed_value, ast.Dict)
-        fixed_items = {
-            ast.literal_eval(key): value
-            for key, value in zip(fixed_value.keys, fixed_value.values)
-        }
-        self.assertEqual(set(fixed_items), {"y", "z"})
-        self.assertEqual(ast.literal_eval(fixed_items["y"]), 100.0)
-        self.assertEqual(ast.unparse(fixed_items["z"]), "QW_PLANE_Z_NM")
-
         self.assertEqual(len(config_cells), 1)
         config_cell = config_cells.pop()
         self.assertTrue(
             self.classical_start < config_cell < self.quantum_start
         )
 
-        _, default_axis = self.one_top_assignment("DEFAULT_1D_LINE_AXIS")
-        self.assertEqual(
-            ast.unparse(assignment_value(default_axis)),
-            "LINE_AXIS",
-        )
-        _, default_coords = self.one_top_assignment(
-            "DEFAULT_1D_LINE_FIXED_COORDS"
-        )
-        self.assertEqual(
-            ast.unparse(assignment_value(default_coords)),
-            "dict(LINE_FIXED_COORDINATES)",
-        )
+        for obsolete_name in (
+            "QW_PLANE_Z_NM",
+            "LINE_FIXED_COORDINATES",
+            "DEFAULT_1D_LINE_AXIS",
+            "DEFAULT_1D_LINE_FIXED_COORDS",
+            "HOLE_DENSITY_VARIABLE",
+            "POTENTIAL_VARIABLE",
+            "HH_BAND_VARIABLE",
+            "ELECTRON_DENSITY_VARIABLE",
+        ):
+            with self.subTest(obsolete_name=obsolete_name):
+                self.assertNotIn(obsolete_name, self.top_assignments)
+                self.assertIsNone(
+                    re.search(
+                        rf"(?<![A-Za-z0-9_]){re.escape(obsolete_name)}"
+                        rf"(?![A-Za-z0-9_])",
+                        self.classical_source,
+                    )
+                )
 
     def test_old_wrappers_and_classical_local_implementations_are_absent(self):
         definitions = {
@@ -401,222 +611,226 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
                     f"Notebook-local implementation remains in cell {index}",
                 )
 
-    def test_primary_planes_and_lines_use_exact_variables_and_shared_coordinates(self):
-        plane_calls = self.calls_named(
-            "plot_bias_volume_slice",
-            classical_only=True,
-        )
-        line_calls = self.calls_named(
-            "plot_bias_volume_linecut",
-            classical_only=True,
-        )
-
-        primary_plane_calls = {
-            self.classical_output_pair(call): call
-            for _, call in plane_calls
-            if self.classical_output_pair(call) in PRIMARY_CLASSICAL_OUTPUTS
-        }
-        primary_line_calls = {
-            self.classical_output_pair(call): call
-            for _, call in line_calls
-            if self.classical_output_pair(call) in PRIMARY_CLASSICAL_OUTPUTS
-        }
-        self.assertEqual(set(primary_plane_calls), PRIMARY_CLASSICAL_OUTPUTS)
-        self.assertEqual(set(primary_line_calls), PRIMARY_CLASSICAL_OUTPUTS)
-
-        for pair, call in primary_plane_calls.items():
-            keywords = keyword_map(call)
-            with self.subTest(kind="plane", output=pair):
-                self.assertEqual(ast.unparse(call.args[0]), "RUN_DIRECTORY")
-                self.assertEqual(ast.unparse(keywords["bias"]), "BIAS")
-                self.assertEqual(ast.literal_eval(keywords["slice_axis"]), "z")
-                self.assertEqual(
-                    ast.unparse(keywords["slice_value"]),
-                    "QW_PLANE_Z_NM",
-                )
-
-        for pair, call in primary_line_calls.items():
-            keywords = keyword_map(call)
-            with self.subTest(kind="line", output=pair):
-                self.assertEqual(ast.unparse(call.args[0]), "RUN_DIRECTORY")
-                self.assertEqual(ast.unparse(keywords["bias"]), "BIAS")
-                self.assertEqual(ast.unparse(keywords["axis"]), "LINE_AXIS")
-                self.assertEqual(
-                    ast.unparse(keywords["fixed_coords"]),
-                    "LINE_FIXED_COORDINATES",
-                )
-
-    def test_primary_metadata_loaders_use_exact_variables_and_shared_coordinates(self):
-        plane_calls = self.calls_named("load_vtr_plane", classical_only=True)
-        line_calls = self.calls_named("load_vtr_linecut", classical_only=True)
-        primary_plane_calls = {
-            self.metadata_output_pair(call): call
-            for _, call in plane_calls
-            if self.metadata_output_pair(call) in PRIMARY_METADATA_OUTPUTS
-        }
-        primary_line_calls = {
-            self.metadata_output_pair(call): call
-            for _, call in line_calls
-            if self.metadata_output_pair(call) in PRIMARY_METADATA_OUTPUTS
-        }
-        self.assertEqual(set(primary_plane_calls), PRIMARY_METADATA_OUTPUTS)
-        self.assertEqual(set(primary_line_calls), PRIMARY_METADATA_OUTPUTS)
-
-        for pair, call in primary_plane_calls.items():
-            keywords = keyword_map(call)
-            with self.subTest(kind="plane metadata", output=pair):
-                self.assertEqual(ast.literal_eval(keywords["slice_axis"]), "z")
-                self.assertEqual(
-                    ast.unparse(keywords["slice_value"]),
-                    "QW_PLANE_Z_NM",
-                )
-
-        for pair, call in primary_line_calls.items():
-            keywords = keyword_map(call)
-            with self.subTest(kind="line metadata", output=pair):
-                self.assertEqual(ast.unparse(keywords["axis"]), "LINE_AXIS")
-                self.assertEqual(
-                    ast.unparse(keywords["fixed_coords"]),
-                    "LINE_FIXED_COORDINATES",
-                )
-
-    def test_primary_titles_reference_actual_selected_grid_coordinates(self):
-        plane_metadata_targets = self.assigned_call_targets("load_vtr_plane")
-        line_metadata_targets = self.assigned_call_targets("load_vtr_linecut")
-        primary_plane_metadata = {
-            self.metadata_output_pair(call): plane_metadata_targets[id(call)][1]
-            for _, call in self.calls_named("load_vtr_plane", classical_only=True)
-            if self.metadata_output_pair(call) in PRIMARY_METADATA_OUTPUTS
-        }
-        primary_line_metadata = {
-            self.metadata_output_pair(call): line_metadata_targets[id(call)][1]
-            for _, call in self.calls_named("load_vtr_linecut", classical_only=True)
-            if self.metadata_output_pair(call) in PRIMARY_METADATA_OUTPUTS
-        }
-
-        primary_plane_calls = [
-            call
-            for _, call in self.calls_named(
-                "plot_bias_volume_slice",
-                classical_only=True,
+    def test_primary_planes_and_lines_use_cell_local_configuration(self):
+        figure_cells = {}
+        quantities = []
+        for figure_name, specification in DEFAULT_CLASSICAL_FIGURES.items():
+            index, _, call = self.assigned_call(
+                figure_name,
+                specification["plot_api"],
             )
-            if self.classical_output_pair(call) in PRIMARY_CLASSICAL_OUTPUTS
-        ]
-        line_targets = self.assigned_call_targets(
-            "plot_bias_volume_linecut"
-        )
-        primary_line_calls = [
-            call
-            for _, call in self.calls_named(
-                "plot_bias_volume_linecut",
-                classical_only=True,
-            )
-            if self.classical_output_pair(call) in PRIMARY_CLASSICAL_OUTPUTS
-        ]
-        display_calls = self.calls_named("display", classical_only=True)
-
-        for call in primary_plane_calls:
-            output_pair = self.classical_output_pair(call)
-            metadata_pair = (
-                PRIMARY_METADATA_PATHS[output_pair],
-                output_pair[1],
-            )
-            with self.subTest(kind="plane", output=output_pair):
-                metadata_name = primary_plane_metadata[metadata_pair]
-                title_source = ast.unparse(keyword_map(call)["title"])
-                self.assertIn(metadata_name, title_source)
-                self.assertIn("'slice_coordinate'", title_source)
-
-        for call in primary_line_calls:
-            output_pair = self.classical_output_pair(call)
-            metadata_pair = (
-                PRIMARY_METADATA_PATHS[output_pair],
-                output_pair[1],
-            )
-            with self.subTest(kind="line", output=output_pair):
-                self.assertIn(
-                    id(call),
-                    line_targets,
-                    "Primary line-cut figure must be assigned before titling",
+            figure_cells[figure_name] = index
+            quantities.append(specification["quantity"])
+            with self.subTest(figure=figure_name, cell=index):
+                self.assert_local_plot_configuration(
+                    index,
+                    call,
+                    specification,
                 )
-                _, figure_name = line_targets[id(call)]
-                title_calls = [
-                    candidate
-                    for _, candidate in self.classical_calls
-                    if call_name(candidate) in {"set_title", "update_layout"}
-                    and isinstance(candidate.func, ast.Attribute)
-                    and ast.unparse(candidate.func.value).startswith(figure_name)
-                ]
-                self.assertEqual(len(title_calls), 1)
-                title_call = title_calls[0]
-                title_value = (
-                    title_call.args[0]
-                    if title_call.args
-                    else keyword_map(title_call).get("title")
+                self.assertIs(
+                    ast.literal_eval(keyword_map(call)["interactive"]),
+                    False,
                 )
-                self.assertIsNotNone(title_value)
-                title_source = ast.unparse(title_value)
-                metadata_name = primary_line_metadata[metadata_pair]
-                self.assertIn(metadata_name, title_source)
-                self.assertIn("'chosen_coords'", title_source)
-                self.assertIn("['y']", title_source)
-                self.assertIn("['z']", title_source)
                 self.assertTrue(
                     any(
-                        display.args
+                        display_index == index
+                        and display.args
                         and any(
                             isinstance(node, ast.Name)
                             and node.id == figure_name
                             for node in ast.walk(display.args[0])
                         )
-                        for _, display in display_calls
+                        for display_index, display in self.calls_named(
+                            "display",
+                            classical_only=True,
+                        )
                     ),
-                    f"{figure_name} is not displayed after title formatting",
+                    f"{figure_name} is not displayed in its plotting cell",
                 )
 
-    def test_all_classical_cuts_use_the_shared_coordinate_configuration(self):
-        for api in ("load_vtr_plane", "plot_bias_volume_slice"):
+        self.assertEqual(len(set(figure_cells.values())), 9)
+        self.assertEqual(quantities.count("density_hole"), 2)
+        self.assertEqual(quantities.count("potential"), 3)
+        self.assertEqual(quantities.count("bandedges"), 4)
+
+    def test_primary_metadata_loaders_match_each_plotting_cell(self):
+        for figure_name, specification in DEFAULT_CLASSICAL_FIGURES.items():
+            plot_index, _, plot_call = self.assigned_call(
+                figure_name,
+                specification["plot_api"],
+            )
+            loader_index, loader_assignment, loader_call = self.assigned_call(
+                specification["data_name"],
+                specification["loader_api"],
+            )
+            with self.subTest(figure=figure_name, cell=plot_index):
+                self.assertEqual(loader_index, plot_index)
+                self.assertLess(loader_assignment.lineno, plot_call.lineno)
+                self.assertEqual(
+                    ast.unparse(loader_call.args[0]),
+                    specification["path"],
+                )
+                loader_keywords = keyword_map(loader_call)
+                self.assertEqual(
+                    ast.unparse(loader_keywords["variable"]),
+                    "VARIABLE",
+                )
+                if specification["loader_api"] == "load_vtr_plane":
+                    self.assertEqual(
+                        ast.unparse(loader_keywords["slice_axis"]),
+                        "SLICE_AXIS",
+                    )
+                    self.assertEqual(
+                        ast.unparse(loader_keywords["slice_value"]),
+                        "SLICE_COORDINATE_NM",
+                    )
+                else:
+                    self.assertEqual(
+                        ast.unparse(loader_keywords["axis"]),
+                        "LINE_AXIS",
+                    )
+                    self.assertEqual(
+                        ast.unparse(loader_keywords["fixed_coords"]),
+                        "FIXED_COORDINATES_NM",
+                    )
+
+    def test_primary_titles_reference_actual_selected_grid_coordinates(self):
+        for figure_name, specification in DEFAULT_CLASSICAL_FIGURES.items():
+            index, _, call = self.assigned_call(
+                figure_name,
+                specification["plot_api"],
+            )
+            if specification["plot_api"] == "plot_bias_volume_slice":
+                with self.subTest(figure=figure_name, kind="plane"):
+                    title_source = ast.unparse(keyword_map(call)["title"])
+                    self.assertIn(specification["data_name"], title_source)
+                    self.assertIn("'slice_coordinate'", title_source)
+                    self.assertIn(
+                        f"{specification['axis']} = ",
+                        title_source,
+                    )
+                    self.assertIn("nm", title_source)
+                continue
+
+            title_calls = [
+                candidate
+                for candidate_index, candidate in self.classical_calls
+                if candidate_index == index
+                and call_name(candidate) == "set_title"
+                and isinstance(candidate.func, ast.Attribute)
+                and ast.unparse(candidate.func.value).startswith(figure_name)
+            ]
+            with self.subTest(figure=figure_name, kind="line"):
+                self.assertEqual(len(title_calls), 1)
+                title_source = ast.unparse(title_calls[0].args[0])
+                self.assertIn(specification["data_name"], title_source)
+                self.assertIn("'chosen_coords'", title_source)
+                self.assertIn("LINE_AXIS", title_source)
+                for coordinate_axis in specification["coordinates"]:
+                    self.assertIn(
+                        f"['{coordinate_axis}']",
+                        title_source,
+                    )
+                    self.assertIn(f"{coordinate_axis} = ", title_source)
+                self.assertIn("nm", title_source)
+
+    def test_all_classical_cuts_define_coordinates_in_their_own_cells(self):
+        plane_apis = (
+            "find_vtr_plane_extrema",
+            "load_vtr_plane",
+            "plot_bias_volume_slice",
+        )
+        for api in plane_apis:
             for index, call in self.calls_named(api, classical_only=True):
+                axis_assignment = self.one_cell_assignment(
+                    index,
+                    "SLICE_AXIS",
+                )
+                coordinate_assignment = self.one_cell_assignment(
+                    index,
+                    "SLICE_COORDINATE_NM",
+                )
                 keywords = keyword_map(call)
                 with self.subTest(api=api, kind="plane", cell=index):
+                    self.assertLess(axis_assignment.lineno, call.lineno)
+                    self.assertLess(coordinate_assignment.lineno, call.lineno)
                     self.assertEqual(
-                        ast.literal_eval(keywords["slice_axis"]),
-                        "z",
+                        ast.unparse(keywords["slice_axis"]),
+                        "SLICE_AXIS",
                     )
                     self.assertEqual(
                         ast.unparse(keywords["slice_value"]),
-                        "QW_PLANE_Z_NM",
+                        "SLICE_COORDINATE_NM",
                     )
-                    self.assertNotIsInstance(
-                        keywords["slice_value"],
-                        ast.Constant,
+                    axis = ast.literal_eval(
+                        assignment_value(axis_assignment)
+                    )
+                    coordinate = ast.unparse(
+                        assignment_value(coordinate_assignment)
+                    )
+                    self.assertEqual(
+                        (axis, coordinate),
+                        {
+                            "z": ("z", "XY_PLANE_Z_NM"),
+                            "y": ("y", "XZ_PLANE_Y_NM"),
+                        }[axis],
                     )
 
         for api in ("load_vtr_linecut", "plot_bias_volume_linecut"):
             for index, call in self.calls_named(api, classical_only=True):
+                axis_assignment = self.one_cell_assignment(index, "LINE_AXIS")
+                coordinates_assignment = self.one_cell_assignment(
+                    index,
+                    "FIXED_COORDINATES_NM",
+                )
                 keywords = keyword_map(call)
                 with self.subTest(api=api, kind="line", cell=index):
+                    self.assertLess(axis_assignment.lineno, call.lineno)
+                    self.assertLess(coordinates_assignment.lineno, call.lineno)
                     self.assertEqual(
                         ast.unparse(keywords["axis"]),
                         "LINE_AXIS",
                     )
                     self.assertEqual(
                         ast.unparse(keywords["fixed_coords"]),
-                        "LINE_FIXED_COORDINATES",
+                        "FIXED_COORDINATES_NM",
+                    )
+                    axis = ast.literal_eval(
+                        assignment_value(axis_assignment)
+                    )
+                    coordinate_value = assignment_value(
+                        coordinates_assignment
+                    )
+                    self.assertIsInstance(coordinate_value, ast.Dict)
+                    coordinates = {
+                        ast.literal_eval(key): ast.unparse(value)
+                        for key, value in zip(
+                            coordinate_value.keys,
+                            coordinate_value.values,
+                        )
+                    }
+                    self.assertEqual(
+                        coordinates,
+                        {
+                            "x": {
+                                "y": "X_LINE_Y_NM",
+                                "z": "X_LINE_Z_NM",
+                            },
+                            "z": {
+                                "x": "Z_LINE_X_NM",
+                                "y": "Z_LINE_Y_NM",
+                            },
+                        }[axis],
                     )
 
-        for old_coordinate in (
-            r"z\s*=\s*-4(?:\.0)?\s*nm",
-            r"z\s*=\s*-2(?:\.0)?\s*nm",
-        ):
-            with self.subTest(old_coordinate=old_coordinate):
-                self.assertIsNone(
-                    re.search(
-                        old_coordinate,
-                        self.classical_source,
-                        flags=re.IGNORECASE,
-                    )
-                )
+        self.assertNotIn("-7.5", self.classical_source)
+        self.assertIsNone(
+            re.search(
+                r"y\s*=\s*100(?:\.0)?\s*nm",
+                self.classical_source,
+                flags=re.IGNORECASE,
+            )
+        )
 
     def test_secondary_bands_electron_density_and_3d_are_guarded(self):
         secondary_guarded = self.guarded_node_ids("SHOW_SECONDARY_BANDS")
@@ -644,77 +858,106 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
         self.assertIn(id(secondary_loops[0]), secondary_guarded)
 
         secondary_calls = [
-            call
-            for _, call in self.classical_calls
-            if call_name(call)
-            in {"plot_bias_volume_slice", "plot_bias_volume_linecut"}
-            and (
-                literal_or_none(keyword_map(call).get("variable"))
-                in {"LH", "SO"}
-                or (
-                    literal_or_none(call_argument(call, 1, "quantity"))
-                    == "bandedges"
-                    and id(call) in secondary_guarded
-                )
-            )
-        ]
-        self.assertTrue(
-            {"plot_bias_volume_slice", "plot_bias_volume_linecut"}.issubset(
-                {call_name(call) for call in secondary_calls}
-            )
-        )
-        self.assertTrue(
-            all(id(call) in secondary_guarded for call in secondary_calls)
-        )
-        secondary_metadata_calls = [
-            call
-            for _, call in self.classical_calls
-            if call_name(call) in {"load_vtr_plane", "load_vtr_linecut"}
-            and ast.unparse(call.args[0]) == "BANDEDGES_VTR"
-            and id(call) in secondary_guarded
+            (index, call)
+            for index, call in self.classical_calls
+            if id(call) in secondary_guarded
+            and call_name(call)
+            in {
+                "load_vtr_plane",
+                "load_vtr_linecut",
+                "plot_bias_volume_slice",
+                "plot_bias_volume_linecut",
+            }
         ]
         self.assertEqual(
-            {call_name(call) for call in secondary_metadata_calls},
-            {"load_vtr_plane", "load_vtr_linecut"},
+            {call_name(call) for _, call in secondary_calls},
+            {
+                "load_vtr_plane",
+                "load_vtr_linecut",
+                "plot_bias_volume_slice",
+                "plot_bias_volume_linecut",
+            },
         )
-        self.assertTrue(
-            all(id(call) in secondary_guarded for call in secondary_metadata_calls)
+        self.assertEqual(
+            len({index for index, _ in secondary_calls}),
+            1,
         )
+        secondary_cell = secondary_calls[0][0]
+        secondary_quantity = self.one_cell_assignment(
+            secondary_cell,
+            "QUANTITY",
+        )
+        secondary_variable = self.one_cell_assignment(
+            secondary_cell,
+            "VARIABLE",
+        )
+        self.assertEqual(
+            ast.literal_eval(assignment_value(secondary_quantity)),
+            "bandedges",
+        )
+        self.assertEqual(
+            ast.unparse(assignment_value(secondary_variable)),
+            "band_variable",
+        )
+        for _, call in secondary_calls:
+            keywords = keyword_map(call)
+            self.assertEqual(ast.unparse(keywords["variable"]), "VARIABLE")
+            if call_name(call).startswith("plot_"):
+                self.assertEqual(ast.unparse(call.args[1]), "QUANTITY")
 
         electron_calls = [
-            call
-            for _, call in self.classical_calls
-            if literal_or_none(call_argument(call, 1, "quantity"))
-            == "density_electron"
+            (index, call)
+            for index, call in self.classical_calls
+            if id(call) in electron_guarded
+            and call_name(call)
+            in {
+                "resolve_bias_output_file",
+                "load_vtr_plane",
+                "load_vtr_linecut",
+                "plot_bias_volume_slice",
+                "plot_bias_volume_linecut",
+                "plot_bias_volume_3d",
+            }
         ]
         self.assertTrue(electron_calls)
-        self.assertTrue(all(id(call) in electron_guarded for call in electron_calls))
         self.assertTrue(
             {
                 "resolve_bias_output_file",
+                "load_vtr_plane",
+                "load_vtr_linecut",
                 "plot_bias_volume_slice",
                 "plot_bias_volume_linecut",
-            }.issubset({call_name(call) for call in electron_calls})
+            }.issubset({call_name(call) for _, call in electron_calls})
         )
-        electron_plot_variables = {
-            self.resolved_literal(keyword_map(call).get("variable"))
-            for call in electron_calls
-            if call_name(call).startswith("plot_")
-        }
-        self.assertEqual(electron_plot_variables, {"Electron_density"})
-        electron_metadata_calls = [
-            call
-            for _, call in self.classical_calls
-            if call_name(call) in {"load_vtr_plane", "load_vtr_linecut"}
-            and ast.unparse(call.args[0]) == "DENSITY_ELECTRON_VTR"
-        ]
+        self.assertEqual(len({index for index, _ in electron_calls}), 1)
+        electron_cell = electron_calls[0][0]
+        electron_quantity = self.one_cell_assignment(
+            electron_cell,
+            "QUANTITY",
+        )
+        electron_variable = self.one_cell_assignment(
+            electron_cell,
+            "VARIABLE",
+        )
         self.assertEqual(
-            {call_name(call) for call in electron_metadata_calls},
-            {"load_vtr_plane", "load_vtr_linecut"},
+            ast.literal_eval(assignment_value(electron_quantity)),
+            "density_electron",
         )
-        self.assertTrue(
-            all(id(call) in electron_guarded for call in electron_metadata_calls)
+        self.assertEqual(
+            ast.literal_eval(assignment_value(electron_variable)),
+            "Electron_density",
         )
+        for _, call in electron_calls:
+            keywords = keyword_map(call)
+            if "variable" in keywords:
+                self.assertEqual(ast.unparse(keywords["variable"]), "VARIABLE")
+            if call_name(call) in {
+                "resolve_bias_output_file",
+                "plot_bias_volume_slice",
+                "plot_bias_volume_linecut",
+                "plot_bias_volume_3d",
+            }:
+                self.assertEqual(ast.unparse(call.args[1]), "QUANTITY")
 
         volume_calls = self.calls_named(
             "plot_bias_volume_3d",
@@ -763,17 +1006,52 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
             classical_only=True,
         )
         self.assertEqual(len(extrema_calls), 1)
-        _, extrema_call = extrema_calls[0]
+        extrema_index, extrema_call = extrema_calls[0]
         keywords = keyword_map(extrema_call)
         self.assertEqual(ast.unparse(extrema_call.args[0]), "BANDEDGES_VTR")
-        self.assertEqual(ast.unparse(keywords["variable"]), "HH_BAND_VARIABLE")
-        self.assertEqual(ast.literal_eval(keywords["slice_axis"]), "z")
+        self.assertEqual(ast.unparse(keywords["variable"]), "VARIABLE")
+        self.assertEqual(ast.unparse(keywords["slice_axis"]), "SLICE_AXIS")
         self.assertEqual(
             ast.unparse(keywords["slice_value"]),
-            "QW_PLANE_Z_NM",
+            "SLICE_COORDINATE_NM",
         )
         self.assertEqual(ast.literal_eval(keywords["kind"]), "min")
         self.assertEqual(ast.literal_eval(keywords["n_extrema"]), 1)
+        self.assertEqual(
+            ast.literal_eval(
+                assignment_value(
+                    self.one_cell_assignment(extrema_index, "QUANTITY")
+                )
+            ),
+            "bandedges",
+        )
+        self.assertEqual(
+            ast.literal_eval(
+                assignment_value(
+                    self.one_cell_assignment(extrema_index, "VARIABLE")
+                )
+            ),
+            "HH",
+        )
+        self.assertEqual(
+            ast.literal_eval(
+                assignment_value(
+                    self.one_cell_assignment(extrema_index, "SLICE_AXIS")
+                )
+            ),
+            "z",
+        )
+        self.assertEqual(
+            ast.unparse(
+                assignment_value(
+                    self.one_cell_assignment(
+                        extrema_index,
+                        "SLICE_COORDINATE_NM",
+                    )
+                )
+            ),
+            "XY_PLANE_Z_NM",
+        )
 
         extrema_targets = self.assigned_call_targets("find_vtr_plane_extrema")
         self.assertIn(id(extrema_call), extrema_targets)
@@ -887,7 +1165,7 @@ class GenerateNextnanoInputNotebookClassicalOutputsTests(unittest.TestCase):
         for phrase in (
             "classical hole density",
             "electrostatic potential",
-            "valence-band edges",
+            "valence-band edge",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.classical_source.lower())

@@ -125,20 +125,30 @@ class GenerateNextnanoInputNotebookStructureDiagnosticsTests(unittest.TestCase):
         cls.combined_code = "\n".join(cls.code_sources.values())
         cls.combined_source = "\n".join(cell_source(cell) for cell in cls.cells)
 
-        cls.structure_start = next(
-            index
-            for index, cell in enumerate(cls.cells)
-            if cell["cell_type"] == "markdown"
-            and "simulated structure and run diagnostics"
-            in cell_source(cell).lower()
-        )
-        cls.physical_outputs_start = next(
-            index
-            for index, cell in enumerate(cls.cells)
-            if index > cls.structure_start
-            and cell["cell_type"] == "markdown"
-            and "physical outputs" in cell_source(cell).lower()
-        )
+        def one_h2_index(title):
+            expected_line = f"## {title}"
+            matches = [
+                index
+                for index, cell in enumerate(cls.cells)
+                if cell["cell_type"] == "markdown"
+                and any(
+                    line.strip() == expected_line
+                    for line in cell_source(cell).splitlines()
+                )
+            ]
+            if len(matches) != 1:
+                raise AssertionError(
+                    f"Expected exactly one {expected_line!r} heading; "
+                    f"found {len(matches)}"
+                )
+            return matches[0]
+
+        cls.structure_start = one_h2_index("Structure and diagnostics")
+        cls.physical_outputs_start = one_h2_index("Classical outputs")
+        if cls.physical_outputs_start <= cls.structure_start:
+            raise AssertionError(
+                "Classical outputs must follow Structure and diagnostics"
+            )
         cls.structure_code_indices = [
             index
             for index, _ in cls.code_cells
@@ -366,10 +376,24 @@ class GenerateNextnanoInputNotebookStructureDiagnosticsTests(unittest.TestCase):
                     False,
                 )
                 self.assertNotIn("slice_value", keywords)
-                quantities.append(ast.literal_eval(keywords["quantity"]))
+                self.assertEqual(
+                    ast.unparse(keywords["quantity"]),
+                    "QUANTITY",
+                )
+                quantity_assignments = [
+                    node
+                    for node in self.structure_trees[index].body
+                    if assignment_name(node) == "QUANTITY"
+                ]
+                self.assertEqual(len(quantity_assignments), 1)
+                quantities.append(
+                    ast.literal_eval(
+                        assignment_value(quantity_assignments[0])
+                    )
+                )
         self.assertEqual(
             set(quantities),
-            {"regions_all_2d_xy_QW", "materials_2d_xz_QW"},
+            {"regions_all_2d_xy_QD", "materials_2d_xz_QD"},
         )
 
         self.assertNotIn("STRUCTURE_LINE_CUT", self.combined_source)
@@ -570,25 +594,29 @@ class GenerateNextnanoInputNotebookStructureDiagnosticsTests(unittest.TestCase):
             if cell["cell_type"] == "markdown"
         }
 
-        def heading_index(fragment):
+        def heading_index(title):
+            expected = re.compile(
+                rf"^#{{2,6}}\s+{re.escape(title)}\s*$",
+                re.MULTILINE,
+            )
             matches = [
                 index
                 for index, source in markdown.items()
-                if fragment in source.lower()
+                if expected.search(source)
             ]
             self.assertEqual(
                 len(matches),
                 1,
-                f"Expected one markdown cell containing {fragment!r}",
+                f"Expected one heading titled {title!r}",
             )
             return matches[0]
 
         ordered_indices = [
-            heading_index("simulated structure and run diagnostics"),
-            heading_index("quantum–poisson convergence"),
-            heading_index("integrated hole density"),
-            heading_index("total charge"),
-            heading_index("physical outputs"),
+            heading_index("Structure and diagnostics"),
+            heading_index("Quantum–Poisson convergence"),
+            heading_index("Integrated hole density"),
+            heading_index("Total charge"),
+            heading_index("Classical outputs"),
         ]
         self.assertEqual(ordered_indices, sorted(ordered_indices))
 
@@ -598,14 +626,12 @@ class GenerateNextnanoInputNotebookStructureDiagnosticsTests(unittest.TestCase):
             if self.structure_start <= index < self.physical_outputs_start
         ).lower()
         for phrase in (
-            "intended device geometry",
+            "intended geometry",
             "phidl",
             "process-stack",
-            "structure actually written by nextnano",
-            "ge quantum well",
-            "sige",
-            "oxide",
-            "metallic contacts or gates",
+            "explicitly validated solver run",
+            "solver-structure views",
+            "does not define a compatible 1d structure section",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, structure_markdown)

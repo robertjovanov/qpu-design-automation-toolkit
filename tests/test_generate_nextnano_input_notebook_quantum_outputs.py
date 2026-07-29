@@ -174,12 +174,11 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
             index
             for index, source in cls.markdown_sources.items()
             if (title := h2_title(source)) is not None
-            and "quantum outputs" in title.casefold()
+            and title.casefold() == "quantum outputs"
         ]
         if len(quantum_headings) != 1:
             raise AssertionError(
-                "Expected exactly one H2 heading whose title contains "
-                "'quantum outputs'"
+                "Expected exactly one 'Quantum outputs' H2 heading"
             )
         cls.quantum_start = quantum_headings[0]
         cls.quantum_end = next(
@@ -248,6 +247,19 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
             f"Expected one quantum-section assignment to {name}",
         )
         return matches[0]
+
+    def one_cell_assignment(self, index, name):
+        matches = [
+            node
+            for node in ast.walk(self.quantum_trees[index])
+            if assignment_name(node) == name
+        ]
+        self.assertEqual(
+            len(matches),
+            1,
+            f"Expected one {name} assignment in quantum cell {index}",
+        )
+        return assignment_value(matches[0])
 
     def one_assigned_quantum_call(self, api):
         matches = []
@@ -394,21 +406,6 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
                 )
         self.assertEqual(len(config_cells), 1)
 
-        _, density_variable = self.one_top_assignment(
-            "QUANTUM_DENSITY_VARIABLE"
-        )
-        self.assertEqual(
-            ast.literal_eval(assignment_value(density_variable)),
-            "Density",
-        )
-        _, probability_variable = self.one_top_assignment(
-            "QUANTUM_PROBABILITY_VARIABLE"
-        )
-        probability_value = assignment_value(probability_variable)
-        self.assertIsInstance(probability_value, ast.JoinedStr)
-        self.assertIn("QUANTUM_STATE", ast.unparse(probability_value))
-        self.assertIn("Psi^2_", ast.unparse(probability_value))
-
     def test_complete_quantum_analysis_is_guarded(self):
         guards, guarded_call_ids, else_call_ids = self.guarded_call_ids(
             "ANALYSE_QUANTUM_OUTPUTS"
@@ -426,8 +423,6 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
             "SHOW_OPTIONAL_QUANTUM_3D",
             "EXPECTED_PROBABILITY_PEAKS",
             "PROBABILITY_PEAK_MIN_SEPARATION_NM",
-            "QUANTUM_DENSITY_VARIABLE",
-            "QUANTUM_PROBABILITY_VARIABLE",
         }
         for index, tree in self.quantum_trees.items():
             for statement in tree.body:
@@ -530,16 +525,29 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
                     self.calls_named(banned_call, quantum_only=True)
                 )
 
-    def test_default_density_and_probability_plots_use_shared_coordinates(self):
-        plane_apis = {
-            "plot_quantum_density_volume_slice": False,
-            "plot_quantum_probability_volume_slice": True,
+    def test_default_density_and_probability_plots_use_local_coordinates(self):
+        default_plots = {
+            "plot_quantum_density_volume_slice": {
+                "probability": False,
+                "quantity": "density",
+                "variable": "Density",
+            },
+            "plot_quantum_density_volume_linecut": {
+                "probability": False,
+                "quantity": "density",
+                "variable": "Density",
+            },
+            "plot_quantum_probability_volume_slice": {
+                "probability": True,
+                "quantity": "probability_shift",
+                "variable": "probability",
+            },
+            "plot_quantum_probability_volume_linecut": {
+                "probability": True,
+                "quantity": "probability_shift",
+                "variable": "probability",
+            },
         }
-        line_apis = {
-            "plot_quantum_density_volume_linecut": False,
-            "plot_quantum_probability_volume_linecut": True,
-        }
-
         _, analysis_call_ids, _ = self.guarded_call_ids(
             "ANALYSE_QUANTUM_OUTPUTS"
         )
@@ -547,32 +555,107 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
             "SHOW_OPTIONAL_QUANTUM_3D"
         )
 
-        for api, probability in plane_apis.items():
+        plot_cells = {}
+        for api, expected in default_plots.items():
             calls = self.calls_named(api, quantum_only=True)
             self.assertEqual(len(calls), 1)
-            _, call = calls[0]
+            index, call = calls[0]
+            plot_cells[api] = index
             self.assertIn(id(call), analysis_call_ids)
             self.assertNotIn(id(call), optional_3d_call_ids)
-            self.assert_run_configuration(call, probability=probability)
-            keywords = keyword_map(call)
-            self.assertEqual(ast.literal_eval(keywords["slice_axis"]), "z")
-            self.assertEqual(
-                ast.unparse(keywords["slice_value"]),
-                "QW_PLANE_Z_NM",
+            self.assert_run_configuration(
+                call,
+                probability=expected["probability"],
             )
 
-        for api, probability in line_apis.items():
-            calls = self.calls_named(api, quantum_only=True)
-            self.assertEqual(len(calls), 1)
-            _, call = calls[0]
-            self.assertIn(id(call), analysis_call_ids)
-            self.assertNotIn(id(call), optional_3d_call_ids)
-            self.assert_run_configuration(call, probability=probability)
+            quantity = self.one_cell_assignment(index, "QUANTITY")
+            self.assertEqual(ast.literal_eval(quantity), expected["quantity"])
+            variable = self.one_cell_assignment(index, "VARIABLE")
+            if expected["variable"] == "Density":
+                self.assertEqual(ast.literal_eval(variable), "Density")
+            else:
+                self.assertIsInstance(variable, ast.JoinedStr)
+                self.assertEqual(
+                    ast.unparse(variable),
+                    "f'Psi^2_{QUANTUM_STATE}'",
+                )
+
+            keywords = keyword_map(call)
+            self.assertEqual(ast.unparse(keywords["variable"]), "VARIABLE")
+            assignments = {
+                assignment_name(node): node
+                for node in ast.walk(self.quantum_trees[index])
+                if assignment_name(node) in {"QUANTITY", "VARIABLE"}
+            }
+            self.assertLess(assignments["QUANTITY"].lineno, call.lineno)
+            self.assertLess(assignments["VARIABLE"].lineno, call.lineno)
+
+        self.assertEqual(len(set(plot_cells.values())), len(default_plots))
+
+        for api in (
+            "plot_quantum_density_volume_slice",
+            "plot_quantum_probability_volume_slice",
+        ):
+            index, call = self.calls_named(api, quantum_only=True)[0]
+            self.assertEqual(
+                ast.literal_eval(
+                    self.one_cell_assignment(index, "SLICE_AXIS")
+                ),
+                "z",
+            )
+            self.assertEqual(
+                ast.unparse(
+                    self.one_cell_assignment(
+                        index,
+                        "SLICE_COORDINATE_NM",
+                    )
+                ),
+                "XY_PLANE_Z_NM",
+            )
+
+            keywords = keyword_map(call)
+            self.assertEqual(ast.unparse(keywords["slice_axis"]), "SLICE_AXIS")
+            self.assertEqual(
+                ast.unparse(keywords["slice_value"]),
+                "SLICE_COORDINATE_NM",
+            )
+
+        for api in (
+            "plot_quantum_density_volume_linecut",
+            "plot_quantum_probability_volume_linecut",
+        ):
+            index, call = self.calls_named(api, quantum_only=True)[0]
+            self.assertEqual(
+                ast.literal_eval(
+                    self.one_cell_assignment(index, "LINE_AXIS")
+                ),
+                "x",
+            )
+            fixed_coordinates = self.one_cell_assignment(
+                index,
+                "FIXED_COORDINATES_NM",
+            )
+            self.assertIsInstance(fixed_coordinates, ast.Dict)
+            fixed_items = {
+                ast.literal_eval(key): ast.unparse(value)
+                for key, value in zip(
+                    fixed_coordinates.keys,
+                    fixed_coordinates.values,
+                )
+            }
+            self.assertEqual(
+                fixed_items,
+                {
+                    "y": "X_LINE_Y_NM",
+                    "z": "X_LINE_Z_NM",
+                },
+            )
+
             keywords = keyword_map(call)
             self.assertEqual(ast.unparse(keywords["axis"]), "LINE_AXIS")
             self.assertEqual(
                 ast.unparse(keywords["fixed_coords"]),
-                "LINE_FIXED_COORDINATES",
+                "FIXED_COORDINATES_NM",
             )
 
         displayed = self.displayed_names()
@@ -610,7 +693,7 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
             )
 
     def test_probability_peaks_are_explicit_and_conservatively_labelled(self):
-        _, peaks_call = self.assigned_call(
+        peaks_index, peaks_call = self.assigned_call(
             "QUANTUM_PROBABILITY_PEAKS",
             "find_probability_peaks",
         )
@@ -621,8 +704,21 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
         peak_keywords = keyword_map(peaks_call)
         self.assertEqual(
             ast.unparse(peak_keywords["variable"]),
-            "QUANTUM_PROBABILITY_VARIABLE",
+            "VARIABLE",
         )
+        self.assertEqual(
+            ast.literal_eval(
+                self.one_cell_assignment(peaks_index, "QUANTITY")
+            ),
+            "probability_shift",
+        )
+        probability_variable = self.one_cell_assignment(
+            peaks_index,
+            "VARIABLE",
+        )
+        self.assertIsInstance(probability_variable, ast.JoinedStr)
+        self.assertIn("Psi^2_", ast.unparse(probability_variable))
+        self.assertIn("QUANTUM_STATE", ast.unparse(probability_variable))
         self.assertEqual(
             ast.unparse(peak_keywords["n_peaks"]),
             "EXPECTED_PROBABILITY_PEAKS",
@@ -828,43 +924,41 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
             with self.subTest(banned_selection=banned_selection):
                 self.assertNotIn(banned_selection, self.combined_code)
 
-    def test_classical_coordinates_remain_the_shared_quantum_coordinates(self):
-        _, plane_z = self.one_top_assignment("QW_PLANE_Z_NM")
-        self.assertEqual(ast.literal_eval(assignment_value(plane_z)), -7.5)
-        _, line_axis = self.one_top_assignment("LINE_AXIS")
-        self.assertEqual(ast.literal_eval(assignment_value(line_axis)), "x")
-
-        _, fixed_coordinates = self.one_top_assignment(
-            "LINE_FIXED_COORDINATES"
-        )
-        fixed_value = assignment_value(fixed_coordinates)
-        self.assertIsInstance(fixed_value, ast.Dict)
-        fixed_items = {
-            ast.literal_eval(key): value
-            for key, value in zip(fixed_value.keys, fixed_value.values)
+    def test_quantum_plots_share_the_six_canonical_analysis_coordinates(self):
+        expected_coordinates = {
+            "XY_PLANE_Z_NM": -4.0,
+            "XZ_PLANE_Y_NM": 0.0,
+            "X_LINE_Y_NM": 0.0,
+            "X_LINE_Z_NM": -4.0,
+            "Z_LINE_X_NM": 1150.0,
+            "Z_LINE_Y_NM": 0.0,
         }
-        self.assertEqual(set(fixed_items), {"y", "z"})
-        self.assertEqual(ast.literal_eval(fixed_items["y"]), 100.0)
-        self.assertEqual(ast.unparse(fixed_items["z"]), "QW_PLANE_Z_NM")
+        coordinate_cells = set()
+        for name, expected in expected_coordinates.items():
+            with self.subTest(name=name):
+                index, assignment = self.one_top_assignment(name)
+                coordinate_cells.add(index)
+                self.assertEqual(
+                    ast.literal_eval(assignment_value(assignment)),
+                    expected,
+                )
+        self.assertEqual(len(coordinate_cells), 1)
 
-        for index, call in self.quantum_calls:
-            keywords = keyword_map(call)
-            if "slice_value" in keywords:
-                with self.subTest(cell=index, api=call_name(call), kind="plane"):
-                    self.assertEqual(
-                        ast.unparse(keywords["slice_value"]),
-                        "QW_PLANE_Z_NM",
+        for obsolete_name in (
+            "QW_PLANE_Z_NM",
+            "LINE_FIXED_COORDINATES",
+            "DEFAULT_1D_LINE_AXIS",
+            "DEFAULT_1D_LINE_FIXED_COORDS",
+        ):
+            with self.subTest(obsolete_name=obsolete_name):
+                self.assertNotIn(obsolete_name, self.top_assignments)
+                self.assertIsNone(
+                    re.search(
+                        rf"(?<![A-Za-z0-9_]){re.escape(obsolete_name)}"
+                        rf"(?![A-Za-z0-9_])",
+                        self.combined_code,
                     )
-            if "axis" in keywords and call_name(call) in {
-                "plot_quantum_density_volume_linecut",
-                "plot_quantum_probability_volume_linecut",
-            }:
-                with self.subTest(cell=index, api=call_name(call), kind="line"):
-                    self.assertEqual(ast.unparse(keywords["axis"]), "LINE_AXIS")
-                    self.assertEqual(
-                        ast.unparse(keywords["fixed_coords"]),
-                        "LINE_FIXED_COORDINATES",
-                    )
+                )
 
     def test_quantum_markdown_is_concise_and_ordered(self):
         quantum_markdown = [
@@ -888,10 +982,14 @@ class GenerateNextnanoInputNotebookQuantumOutputsTests(unittest.TestCase):
 
         ordered = [
             self.quantum_start,
-            matching_index("quantum-calculated hole density"),
-            matching_index("probability density"),
-            matching_index("state occupation"),
-            matching_index("energy spectrum"),
+            matching_index(
+                "### quantum-calculated hh density — xy plane"
+            ),
+            matching_index(
+                "### shifted state probability density — xy plane"
+            ),
+            matching_index("### state occupation"),
+            matching_index("### energy spectrum"),
         ]
         self.assertEqual(ordered, sorted(ordered))
 

@@ -2,7 +2,6 @@ import ast
 import json
 import re
 import unittest
-from collections import Counter
 from pathlib import Path
 
 
@@ -135,6 +134,7 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             "get_bias_dir",
             "get_output_directory",
             "list_variables",
+            "plot_bias_volume_linecut",
             "plot_bias_volume_3d",
             "plot_bias_volume_slice",
             "plot_quantum_density_volume_3d",
@@ -143,7 +143,6 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             "plot_quantum_probability_volume_3d",
             "plot_quantum_probability_volume_linecut",
             "plot_quantum_probability_volume_slice",
-            "plot_vtr_linecut",
             "resolve_bias_output_file",
             "resolve_quantum_output_file",
             "resolve_quantum_probability_state_file",
@@ -639,17 +638,12 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             },
         )
 
-    def test_scientific_helpers_calls_and_coordinates_are_preserved(self):
+    def test_geometry_and_quantum_analysis_are_preserved(self):
         expected_call_counts = {
             "LinearDotArrayDevice": 1,
             "make_reference_sige_ge_process_stack": 1,
             "build_simulation_layout": 1,
             "write_nextnano_input_from_template": 1,
-            "resolve_bias_output_file": 5,
-            "list_variables": 6,
-            "plot_bias_volume_3d": 4,
-            "plot_bias_volume_slice": 8,
-            "plot_vtr_linecut": 1,
             "resolve_quantum_output_file": 1,
             "resolve_quantum_probability_state_file": 1,
             "plot_quantum_density_volume_3d": 1,
@@ -666,8 +660,6 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
         expected_helpers = {
             "print_json",
             "print_header",
-            "_format_fixed_coords_for_title",
-            "plot_default_1d_diagnostic",
         }
         defined_helpers = {
             node.name
@@ -678,8 +670,6 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
         self.assertEqual(defined_helpers, expected_helpers)
 
         preserved_assignments = {
-            "DEFAULT_1D_LINE_AXIS": "x",
-            "DEFAULT_1D_LINE_FIXED_COORDS": {"y": 100.0, "z": -4.0},
             "QUANTUM_REGION": "c-Ge_QW",
             "QUANTUM_BAND": "HH",
             "QUANTUM_KPOINT": "k00000",
@@ -693,26 +683,17 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
                     expected,
                 )
 
-        slice_coordinates = Counter()
-        for _, call in self.calls_named("plot_bias_volume_slice"):
-            keywords = keyword_map(call)
-            slice_coordinates[
-                (
-                    ast.literal_eval(keywords["slice_axis"]),
-                    ast.literal_eval(keywords["slice_value"]),
-                )
-            ] += 1
+        _, default_axis = self.one_top_assignment("DEFAULT_1D_LINE_AXIS")
         self.assertEqual(
-            slice_coordinates,
-            Counter(
-                {
-                    ("z", -7.5): 3,
-                    ("z", -2.0): 2,
-                    ("z", -4.0): 1,
-                    ("x", 0.0): 1,
-                    ("y", 100.0): 1,
-                }
-            ),
+            ast.unparse(assignment_value(default_axis)),
+            "LINE_AXIS",
+        )
+        _, default_fixed_coords = self.one_top_assignment(
+            "DEFAULT_1D_LINE_FIXED_COORDS"
+        )
+        self.assertEqual(
+            ast.unparse(assignment_value(default_fixed_coords)),
+            "dict(LINE_FIXED_COORDINATES)",
         )
 
     def test_notebook_is_path_safe_and_has_no_stored_outputs(self):

@@ -516,9 +516,9 @@ class GenerateNextnanoInputNotebookStructureDiagnosticsTests(unittest.TestCase):
             "build_simulation_layout",
             "write_nextnano_input_from_template",
             "resolve_bias_output_file",
+            "plot_bias_volume_linecut",
             "plot_bias_volume_3d",
             "plot_bias_volume_slice",
-            "plot_vtr_linecut",
             "resolve_quantum_output_file",
             "resolve_quantum_probability_state_file",
             "plot_quantum_density_volume_3d",
@@ -531,25 +531,6 @@ class GenerateNextnanoInputNotebookStructureDiagnosticsTests(unittest.TestCase):
         for name in preserved_calls:
             with self.subTest(name=name):
                 self.assertTrue(self.calls_named(name))
-
-        preserved_helpers = {
-            node.name
-            for tree in self.trees.values()
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name
-            in {
-                "_format_fixed_coords_for_title",
-                "plot_default_1d_diagnostic",
-            }
-        }
-        self.assertEqual(
-            preserved_helpers,
-            {
-                "_format_fixed_coords_for_title",
-                "plot_default_1d_diagnostic",
-            },
-        )
 
     def test_markdown_order_distinguishes_intended_and_solver_structure(self):
         markdown = {

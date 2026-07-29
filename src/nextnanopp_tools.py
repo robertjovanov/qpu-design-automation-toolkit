@@ -1903,6 +1903,120 @@ def discover_sweep_runs(
     ).reset_index(drop=True)
 
 
+def load_sweep_outputs(
+    runs: pd.DataFrame,
+    output: str | Path,
+    *,
+    variable: str | None = None,
+    prefer_nextnanopy: bool = True,
+) -> pd.DataFrame:
+    """Load one exact output path for every row in a sweep manifest.
+
+    Relative outputs resolve beneath ``bias_dir`` first and then ``run_root``;
+    absolute paths are checked directly. Every input row is preserved when an
+    output is missing or fails to load. When supplied, ``variable`` is
+    validated against the normalized dataset returned by ``load_output_file``.
+    The returned copy adds
+    ``requested_output``, ``output_path``, ``output_available``, ``dataset``,
+    and ``load_error`` columns.
+    """
+    if not isinstance(runs, pd.DataFrame):
+        raise TypeError("runs must be a pandas DataFrame.")
+    if "run_root" not in runs.columns:
+        raise ValueError("runs must contain a 'run_root' column.")
+    if not str(output).strip():
+        raise ValueError("output must be a non-empty path.")
+
+    requested_output = _coerce_path(output).expanduser()
+    if requested_output == Path("."):
+        raise ValueError("output must be a non-empty file path.")
+
+    result = runs.copy(deep=True)
+    if result.empty:
+        result["requested_output"] = pd.Series(index=result.index, dtype=object)
+        result["output_path"] = pd.Series(index=result.index, dtype=object)
+        result["output_available"] = pd.Series(index=result.index, dtype=bool)
+        result["dataset"] = pd.Series(index=result.index, dtype=object)
+        result["load_error"] = pd.Series(index=result.index, dtype=object)
+        return result
+
+    requested_outputs: list[Path] = []
+    output_paths: list[Path | None] = []
+    output_availability: list[bool] = []
+    datasets: list[OutputDataset | None] = []
+    load_errors: list[str | None] = []
+    has_bias_dir = "bias_dir" in result.columns
+
+    for _, row in result.iterrows():
+        requested_outputs.append(requested_output)
+        found_path: Path | None = None
+
+        try:
+            if requested_output.is_absolute():
+                absolute_path = requested_output.resolve()
+                found_path = absolute_path if absolute_path.is_file() else None
+            else:
+                run_root = _coerce_path(row["run_root"]).expanduser().resolve()
+                bias_dir: Path | None = None
+                if has_bias_dir:
+                    raw_bias_dir = row["bias_dir"]
+                    is_missing_bias = raw_bias_dir is None or raw_bias_dir is pd.NA
+                    if not is_missing_bias:
+                        try:
+                            is_missing_bias = bool(pd.isna(raw_bias_dir))
+                        except (TypeError, ValueError):
+                            is_missing_bias = False
+                    if not is_missing_bias:
+                        bias_dir = _coerce_path(raw_bias_dir).expanduser().resolve()
+
+                found_path = _find_required_outputs(
+                    run_root,
+                    bias_dir,
+                    (requested_output,),
+                )[str(requested_output)]
+        except Exception as exc:
+            output_paths.append(None)
+            output_availability.append(False)
+            datasets.append(None)
+            load_errors.append(
+                f"Could not resolve output {requested_output}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            continue
+
+        output_paths.append(found_path)
+        if found_path is None:
+            output_availability.append(False)
+            datasets.append(None)
+            load_errors.append(f"Output not found: {requested_output}")
+            continue
+
+        output_availability.append(True)
+        try:
+            dataset = load_output_file(
+                found_path,
+                prefer_nextnanopy=prefer_nextnanopy,
+            )
+            if variable is not None:
+                dataset.get_variable(variable)
+        except Exception as exc:
+            datasets.append(None)
+            load_errors.append(
+                f"Failed to load {found_path}: {type(exc).__name__}: {exc}"
+            )
+            continue
+
+        datasets.append(dataset)
+        load_errors.append(None)
+
+    result["requested_output"] = requested_outputs
+    result["output_path"] = output_paths
+    result["output_available"] = output_availability
+    result["dataset"] = datasets
+    result["load_error"] = load_errors
+    return result
+
+
 def extract_linecut(
     dataset_or_path: OutputDataset | str | Path,
     *,
@@ -4219,6 +4333,7 @@ __all__ = [
     "list_variables",
     "load_input_file",
     "load_output_file",
+    "load_sweep_outputs",
     "load_vtr_linecut",
     "load_vtr_plane",
     "make_timestamp_tag",

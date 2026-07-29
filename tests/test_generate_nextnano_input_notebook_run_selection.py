@@ -869,17 +869,16 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(len(self.calls_named(name)), expected_count)
 
-        expected_helpers = {
-            "print_json",
-            "print_header",
-        }
         defined_helpers = {
             node.name
             for tree in self.trees.values()
             for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            if isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+            )
         }
-        self.assertEqual(defined_helpers, expected_helpers)
+        self.assertEqual(defined_helpers, set())
 
         preserved_assignments = {
             "QUANTUM_REGION": "c-Ge_QW",

@@ -346,6 +346,9 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
                 "bandedges.vtr",
                 "density_hole.vtr",
                 "Quantum/c-Ge_QW/HH/density.vtr",
+                "iteration_quantum_poisson.dat",
+                "integrated_density_hole.dat",
+                "total_charges.txt",
             },
         )
         self.assertNotIn("density_electron.vtr", required_outputs)
@@ -663,21 +666,6 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
         expected_helpers = {
             "print_json",
             "print_header",
-            "list_tree",
-            "read_index_lookup",
-            "read_ascii_vtr_index",
-            "read_avs_fld",
-            "header_int",
-            "summarize_index_grid",
-            "centers_to_edges",
-            "contiguous_runs",
-            "index_z_intervals",
-            "lookup_index_name",
-            "add_box_mesh",
-            "sample_contact_points",
-            "plot_structure_3d",
-            "infer_slice_axes",
-            "plot_fld_index_slice",
             "_format_fixed_coords_for_title",
             "plot_default_1d_diagnostic",
         }

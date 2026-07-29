@@ -30,16 +30,22 @@ REMOVED_STRUCTURE_HELPERS = {
     "plot_fld_index_slice",
 }
 
-EXPECTED_REQUIRED_OUTPUTS = {
+EXPECTED_BASE_REQUIRED_OUTPUTS = (
     "Structure/materials.vtr",
     "potential.vtr",
     "bandedges.vtr",
     "density_hole.vtr",
-    "Quantum/c-Ge_QW/HH/density.vtr",
     "iteration_quantum_poisson.dat",
     "integrated_density_hole.dat",
     "total_charges.txt",
-}
+)
+
+EXPECTED_QUANTUM_REQUIRED_OUTPUTS = (
+    "Quantum/c-Ge_QW/HH/density.vtr",
+    "Quantum/c-Ge_QW/HH/probability_shift_k00000_0001.vtr",
+    "Quantum/c-Ge_QW/HH/occupation.dat",
+    "Quantum/c-Ge_QW/HH/energy_spectrum_k00000.dat",
+)
 
 
 def cell_source(cell):
@@ -479,10 +485,35 @@ class GenerateNextnanoInputNotebookStructureDiagnosticsTests(unittest.TestCase):
         self.assert_displayed("TOTAL_CHARGES_FIGURE")
 
     def test_required_outputs_and_local_transferred_workflow_are_preserved(self):
+        _, analyse_quantum = self.one_top_assignment(
+            "ANALYSE_QUANTUM_OUTPUTS"
+        )
+        self.assertIs(
+            ast.literal_eval(assignment_value(analyse_quantum)),
+            True,
+        )
+        _, base_required_outputs = self.one_top_assignment(
+            "BASE_REQUIRED_OUTPUTS"
+        )
+        self.assertEqual(
+            ast.literal_eval(assignment_value(base_required_outputs)),
+            EXPECTED_BASE_REQUIRED_OUTPUTS,
+        )
+        _, quantum_required_outputs = self.one_top_assignment(
+            "QUANTUM_REQUIRED_OUTPUTS"
+        )
+        self.assertEqual(
+            ast.literal_eval(assignment_value(quantum_required_outputs)),
+            EXPECTED_QUANTUM_REQUIRED_OUTPUTS,
+        )
         _, required_outputs = self.one_top_assignment("REQUIRED_OUTPUTS")
         self.assertEqual(
-            set(ast.literal_eval(assignment_value(required_outputs))),
-            EXPECTED_REQUIRED_OUTPUTS,
+            ast.unparse(assignment_value(required_outputs)),
+            (
+                "BASE_REQUIRED_OUTPUTS + "
+                "(QUANTUM_REQUIRED_OUTPUTS "
+                "if ANALYSE_QUANTUM_OUTPUTS else ())"
+            ),
         )
 
         _, run_simulation = self.one_top_assignment("RUN_SIMULATION")

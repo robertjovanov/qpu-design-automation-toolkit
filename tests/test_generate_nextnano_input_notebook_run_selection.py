@@ -13,6 +13,23 @@ NOTEBOOK_PATH = (
     / "03_generate_nextnano_input_from_phidl_layout.ipynb"
 )
 
+EXPECTED_BASE_REQUIRED_OUTPUTS = (
+    "Structure/materials.vtr",
+    "potential.vtr",
+    "bandedges.vtr",
+    "density_hole.vtr",
+    "iteration_quantum_poisson.dat",
+    "integrated_density_hole.dat",
+    "total_charges.txt",
+)
+
+EXPECTED_QUANTUM_REQUIRED_OUTPUTS = (
+    "Quantum/c-Ge_QW/HH/density.vtr",
+    "Quantum/c-Ge_QW/HH/probability_shift_k00000_0001.vtr",
+    "Quantum/c-Ge_QW/HH/occupation.dat",
+    "Quantum/c-Ge_QW/HH/energy_spectrum_k00000.dat",
+)
+
 
 def cell_source(cell):
     source = cell.get("source", [])
@@ -120,6 +137,7 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
                     aliases_by_module.setdefault(node.module, []).extend(node.names)
 
         self.assertIn("os", imported_modules)
+        self.assertIn("re", imported_modules)
         self.assertIn("Path", imported_by_module.get("pathlib", set()))
         self.assertTrue(
             {
@@ -282,8 +300,11 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             "RUN_SIMULATION",
             "RUN_TAG",
             "BIAS",
+            "ANALYSE_QUANTUM_OUTPUTS",
             "SIMULATION_OUTPUT_ROOT",
             "SIMULATION_STAGING_ROOT",
+            "BASE_REQUIRED_OUTPUTS",
+            "QUANTUM_REQUIRED_OUTPUTS",
             "REQUIRED_OUTPUTS",
         )
         config_cells = {
@@ -316,6 +337,14 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             ast.literal_eval(assignment_value(self.one_top_assignment("BIAS")[1])),
             "bias_00000",
         )
+        self.assertIs(
+            ast.literal_eval(
+                assignment_value(
+                    self.one_top_assignment("ANALYSE_QUANTUM_OUTPUTS")[1]
+                )
+            ),
+            True,
+        )
 
         _, run_directory_node = run_directory_initial[0]
         self.assertEqual(ast.unparse(run_directory_node.annotation), "Path | None")
@@ -329,29 +358,212 @@ class GenerateNextnanoInputNotebookRunSelectionTests(unittest.TestCase):
             "RUN_SIMULATION=False and set RUN_DIRECTORY",
             config_source,
         )
+        self.assertIn(
+            "True: require and analyse HH quantum outputs.",
+            config_source,
+        )
+        self.assertIn(
+            "False: allow a classical-only run and skip the quantum section.",
+            config_source,
+        )
 
-        required_outputs = set(
-            ast.literal_eval(
-                assignment_value(
-                    self.one_top_assignment("REQUIRED_OUTPUTS")[1]
-                )
+        base_required_outputs = ast.literal_eval(
+            assignment_value(
+                self.one_top_assignment("BASE_REQUIRED_OUTPUTS")[1]
             )
         )
         self.assertEqual(
-            required_outputs,
-            {
-                "Structure/materials.vtr",
-                "potential.vtr",
-                "bandedges.vtr",
-                "density_hole.vtr",
-                "Quantum/c-Ge_QW/HH/density.vtr",
-                "iteration_quantum_poisson.dat",
-                "integrated_density_hole.dat",
-                "total_charges.txt",
-            },
+            base_required_outputs,
+            EXPECTED_BASE_REQUIRED_OUTPUTS,
         )
-        self.assertNotIn("density_electron.vtr", required_outputs)
-        self.assertFalse(any("/LH/" in path or "/SO/" in path for path in required_outputs))
+        quantum_required_outputs = ast.literal_eval(
+            assignment_value(
+                self.one_top_assignment("QUANTUM_REQUIRED_OUTPUTS")[1]
+            )
+        )
+        self.assertEqual(
+            quantum_required_outputs,
+            EXPECTED_QUANTUM_REQUIRED_OUTPUTS,
+        )
+
+        required_outputs_expression = assignment_value(
+            self.one_top_assignment("REQUIRED_OUTPUTS")[1]
+        )
+        self.assertIsInstance(required_outputs_expression, ast.BinOp)
+        self.assertIsInstance(required_outputs_expression.op, ast.Add)
+        self.assertEqual(
+            ast.unparse(required_outputs_expression.left),
+            "BASE_REQUIRED_OUTPUTS",
+        )
+        self.assertIsInstance(required_outputs_expression.right, ast.IfExp)
+        self.assertEqual(
+            ast.unparse(required_outputs_expression.right.test),
+            "ANALYSE_QUANTUM_OUTPUTS",
+        )
+        self.assertEqual(
+            ast.unparse(required_outputs_expression.right.body),
+            "QUANTUM_REQUIRED_OUTPUTS",
+        )
+        self.assertEqual(
+            ast.literal_eval(required_outputs_expression.right.orelse),
+            (),
+        )
+
+        all_required_outputs = (
+            base_required_outputs + quantum_required_outputs
+        )
+        self.assertNotIn("density_electron.vtr", all_required_outputs)
+        self.assertFalse(
+            any("/LH/" in path or "/SO/" in path for path in all_required_outputs)
+        )
+
+    def test_quantum_solver_compatibility_is_checked_before_local_execution(self):
+        selection_matches = [
+            node
+            for tree in self.trees.values()
+            for node in tree.body
+            if isinstance(node, ast.If)
+            and ast.unparse(node.test) == "RUN_SIMULATION"
+        ]
+        self.assertEqual(len(selection_matches), 1)
+        selection = selection_matches[0]
+
+        quantum_guards = [
+            node
+            for node in selection.body
+            if isinstance(node, ast.If)
+            and ast.unparse(node.test) == "ANALYSE_QUANTUM_OUTPUTS"
+        ]
+        self.assertEqual(len(quantum_guards), 1)
+        quantum_guard = quantum_guards[0]
+
+        run_calls = [
+            node
+            for node in ast.walk(selection)
+            if isinstance(node, ast.Call)
+            and call_name(node) == "run_input_file"
+        ]
+        self.assertEqual(len(run_calls), 1)
+        run_call = run_calls[0]
+        run_statements = [
+            statement
+            for statement in selection.body
+            if any(node is run_call for node in ast.walk(statement))
+        ]
+        self.assertEqual(len(run_statements), 1)
+        self.assertLess(
+            selection.body.index(quantum_guard),
+            selection.body.index(run_statements[0]),
+        )
+        self.assertFalse(
+            any(node is run_call for node in ast.walk(quantum_guard))
+        )
+
+        read_calls = [
+            node
+            for node in ast.walk(quantum_guard)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "read_text"
+            and ast.unparse(node.func.value) == "GENERATED_INPUT_PATH"
+        ]
+        self.assertEqual(len(read_calls), 1)
+        self.assertEqual(
+            ast.literal_eval(keyword_map(read_calls[0])["encoding"]),
+            "utf-8",
+        )
+
+        fullmatch_calls = [
+            node
+            for node in ast.walk(quantum_guard)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and ast.unparse(node.func.value) == "re"
+            and node.func.attr == "fullmatch"
+        ]
+        self.assertEqual(len(fullmatch_calls), 1)
+        pattern = ast.literal_eval(fullmatch_calls[0].args[0])
+        self.assertEqual(
+            pattern,
+            r"\$(quantum_poisson|quantum)\s*=\s*([01])",
+        )
+
+        solver_pattern = re.compile(pattern)
+
+        def parse_solver_line(line):
+            uncommented = line.split("#", 1)[0].strip()
+            return solver_pattern.fullmatch(uncommented)
+
+        accepted_lines = {
+            "$quantum=1": ("quantum", "1"),
+            "  $quantum = 0  ": ("quantum", "0"),
+            "\t$quantum_poisson\t=\t1": ("quantum_poisson", "1"),
+            "$quantum_poisson = 0 # ignored comment": (
+                "quantum_poisson",
+                "0",
+            ),
+        }
+        for line, expected_groups in accepted_lines.items():
+            with self.subTest(accepted=line):
+                match = parse_solver_line(line)
+                self.assertIsNotNone(match)
+                self.assertEqual(match.groups(), expected_groups)
+
+        for line in (
+            "# $quantum = 1",
+            "$quantum_solver = 1",
+            "$quantum_poisson_extra = 1",
+            "$not_quantum = 1",
+            "$quantum = 10",
+            "prefix $quantum = 1",
+        ):
+            with self.subTest(rejected=line):
+                self.assertIsNone(parse_solver_line(line))
+
+        any_calls = [
+            node
+            for node in ast.walk(quantum_guard)
+            if isinstance(node, ast.Call)
+            and call_name(node) == "any"
+        ]
+        self.assertEqual(len(any_calls), 1)
+        any_source = ast.unparse(any_calls[0])
+        self.assertIn("quantum_solver_switches.get(name, 0)", any_source)
+        self.assertIn("('quantum', 'quantum_poisson')", any_source)
+
+        runtime_errors = [
+            node
+            for node in ast.walk(quantum_guard)
+            if isinstance(node, ast.Raise)
+            and isinstance(node.exc, ast.Call)
+            and call_name(node.exc) == "RuntimeError"
+        ]
+        self.assertEqual(len(runtime_errors), 1)
+        error_source = ast.unparse(runtime_errors[0])
+        for fragment in (
+            "template/generated input",
+            "one-shot quantum solver",
+            "quantum–Poisson solver",
+            "required quantum outputs",
+            "not changed automatically",
+        ):
+            with self.subTest(error_fragment=fragment):
+                self.assertIn(fragment, error_source)
+
+        mutation_calls = {
+            "write_text",
+            "write_bytes",
+            "replace",
+            "sub",
+            "subn",
+        }
+        self.assertFalse(
+            any(
+                isinstance(node, ast.Call)
+                and call_name(node) in mutation_calls
+                for node in ast.walk(quantum_guard)
+            )
+        )
 
     def test_dual_mode_selection_and_validation_are_explicit(self):
         selection_matches = [

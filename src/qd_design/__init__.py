@@ -42,10 +42,13 @@ from .export import (
     PatternedRegion,
     SimulationLayout,
     build_simulation_layout,
+    AdaptiveZGridPolicy,
+    build_adaptive_z_grid_lines,
     write_nextnano_input_from_template,
     render_polygonal_prism,
     render_structure_block,
     render_contacts_block,
+    render_grid_block,
 )
 from .visualization import plot_layout_spec_2d, plot_simulation_layout_3d
 
@@ -86,12 +89,15 @@ __all__ = [
     "PatternedRegion",
     "SimulationLayout",
     "build_simulation_layout",
+    "AdaptiveZGridPolicy",
+    "build_adaptive_z_grid_lines",
     "make_sige_ge_process_stack",
     "make_reference_sige_ge_process_stack",
     "write_nextnano_input_from_template",
     "render_polygonal_prism",
     "render_structure_block",
     "render_contacts_block",
+    "render_grid_block",
     "plot_layout_spec_2d",
     "plot_simulation_layout_3d",
 ]

@@ -14,10 +14,13 @@ from .simulation_layout import (
     build_simulation_layout,
 )
 from .nextnano_writer import (
+    AdaptiveZGridPolicy,
+    build_adaptive_z_grid_lines,
     write_nextnano_input_from_template,
     render_polygonal_prism,
     render_structure_block,
     render_contacts_block,
+    render_grid_block,
 )
 
 __all__ = [
@@ -33,8 +36,11 @@ __all__ = [
     "PatternedRegion",
     "SimulationLayout",
     "build_simulation_layout",
+    "AdaptiveZGridPolicy",
+    "build_adaptive_z_grid_lines",
     "write_nextnano_input_from_template",
     "render_polygonal_prism",
     "render_structure_block",
     "render_contacts_block",
+    "render_grid_block",
 ]

@@ -1,9 +1,53 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from .simulation_layout import PatternedRegion, SimulationLayout
+from .simulation_layout import BackgroundRegion, PatternedRegion, SimulationLayout
+
+
+@dataclass(frozen=True)
+class AdaptiveZGridPolicy:
+    """Geometry-relative refinement distances for the nextnano z-grid."""
+
+    quantum_margin_nm: float = 5.0
+    buffer_medium_refinement_depth_nm: float = 1000.0
+    buffer_fine_refinement_depth_nm: float = 150.0
+    cap_interface_fine_thickness_nm: float = 1.0
+
+    def __post_init__(self) -> None:
+        distances = {
+            "quantum_margin_nm": self.quantum_margin_nm,
+            "buffer_medium_refinement_depth_nm": self.buffer_medium_refinement_depth_nm,
+            "buffer_fine_refinement_depth_nm": self.buffer_fine_refinement_depth_nm,
+            "cap_interface_fine_thickness_nm": self.cap_interface_fine_thickness_nm,
+        }
+        for name, value in distances.items():
+            if value <= 0:
+                raise ValueError(f"{name} must be positive.")
+
+        if (
+            self.buffer_medium_refinement_depth_nm
+            <= self.buffer_fine_refinement_depth_nm
+        ):
+            raise ValueError(
+                "buffer_medium_refinement_depth_nm must be greater than "
+                "buffer_fine_refinement_depth_nm."
+            )
+
+
+_Z_SPACING_FINENESS = {
+    "$dz_buffer_coarse": 0,
+    "$dz_buffer_medium": 1,
+    "$dz_buffer_fine": 2,
+    "$dz_oxide_gates_medium": 3,
+    "$dz_QW_coarse": 4,
+    "$dz_QW_fine": 5,
+    "$dz_cap_fine": 6,
+}
+
+_BODY_CONTACT_THICKNESS_NM = 5.0
 
 
 def _fmt(value: float) -> str:
@@ -203,7 +247,7 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
 
     # Thin bottom body contact at the bottom of the buffer.
     body_z_min = d.z_min_nm
-    body_z_max = d.z_min_nm + 5.0
+    body_z_max = d.z_min_nm + _BODY_CONTACT_THICKNESS_NM
 
     # Thin region at the SiGe-cap / Al2O3 interface.
     remove_surface_z_min = 100.0
@@ -333,17 +377,132 @@ def render_output_block(simulation_layout: SimulationLayout) -> str:
 }}"""
 
 
-def render_grid_block(simulation_layout: SimulationLayout) -> str:
+def _named_background_region(
+    simulation_layout: SimulationLayout,
+    name: str,
+) -> BackgroundRegion:
+    matches = [
+        region
+        for region in simulation_layout.background_regions
+        if region.name == name
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Adaptive nextnano z-grid requires exactly one background region "
+            f"named '{name}'; found {len(matches)}."
+        )
+    return matches[0]
+
+
+def build_adaptive_z_grid_lines(
+    simulation_layout: SimulationLayout,
+    policy: Optional[AdaptiveZGridPolicy] = None,
+) -> List[Tuple[float, str]]:
+    """Return sorted, deduplicated ``(position_nm, spacing_variable)`` pairs."""
+    policy = policy or AdaptiveZGridPolicy()
+    d = simulation_layout.domain
+
+    buffer = _named_background_region(simulation_layout, "SiGe_buffer")
+    quantum_well = _named_background_region(simulation_layout, "Ge_QW")
+    cap = _named_background_region(simulation_layout, "SiGe_cap")
+
+    requirements: Dict[float, str] = {}
+    domain_min = float(_fmt(d.z_min_nm))
+    domain_max = float(_fmt(d.z_max_nm))
+
+    def add(position_nm: float, spacing: str) -> None:
+        if spacing not in _Z_SPACING_FINENESS:
+            raise ValueError(f"Unknown nextnano z-grid spacing variable: {spacing}")
+
+        # Canonicalize exactly as the writer does so distinct float expressions
+        # cannot produce duplicate textual positions.
+        position = float(_fmt(position_nm))
+        if position == 0:
+            position = 0.0
+        if position < domain_min or position > domain_max:
+            return
+
+        current = requirements.get(position)
+        if (
+            current is None
+            or _Z_SPACING_FINENESS[spacing] > _Z_SPACING_FINENESS[current]
+        ):
+            requirements[position] = spacing
+
+    # Domain and continuous material interfaces.
+    add(d.z_min_nm, "$dz_buffer_coarse")
+    add(
+        d.z_min_nm + _BODY_CONTACT_THICKNESS_NM,
+        "$dz_buffer_coarse",
+    )
+    add(d.z_max_nm, "$dz_oxide_gates_medium")
+
+    for region in simulation_layout.background_regions:
+        if region.name == buffer.name:
+            add(region.z_min_nm, "$dz_buffer_coarse")
+            add(region.z_max_nm, "$dz_QW_fine")
+        elif region.name == quantum_well.name:
+            add(region.z_min_nm, "$dz_QW_fine")
+            add(region.z_max_nm, "$dz_QW_fine")
+        elif region.name == cap.name:
+            add(region.z_min_nm, "$dz_QW_fine")
+            add(region.z_max_nm, "$dz_cap_fine")
+        else:
+            add(region.z_min_nm, "$dz_oxide_gates_medium")
+            add(region.z_max_nm, "$dz_oxide_gates_medium")
+
+    # Deep-to-upper buffer hierarchy, measured down from the QW-facing
+    # buffer interface so added substrate thickness remains coarsely resolved.
+    buffer_medium_z = (
+        buffer.z_max_nm - policy.buffer_medium_refinement_depth_nm
+    )
+    buffer_fine_z = buffer.z_max_nm - policy.buffer_fine_refinement_depth_nm
+    if buffer.z_min_nm < buffer_medium_z < buffer.z_max_nm:
+        add(buffer_medium_z, "$dz_buffer_medium")
+    if buffer.z_min_nm < buffer_fine_z < buffer.z_max_nm:
+        add(buffer_fine_z, "$dz_buffer_fine")
+
+    # QW interfaces and the quantum-region refinement margin.
+    add(
+        quantum_well.z_min_nm - policy.quantum_margin_nm,
+        "$dz_QW_coarse",
+    )
+    add(quantum_well.z_min_nm, "$dz_QW_fine")
+    add(quantum_well.z_max_nm, "$dz_QW_fine")
+    add(
+        quantum_well.z_max_nm + policy.quantum_margin_nm,
+        "$dz_QW_coarse",
+    )
+
+    # Resolve the final cap slice and the cap/dielectric interface.
+    cap_fine_start_z = max(
+        cap.z_min_nm,
+        cap.z_max_nm - policy.cap_interface_fine_thickness_nm,
+    )
+    add(cap_fine_start_z, "$dz_cap_fine")
+    add(cap.z_max_nm, "$dz_cap_fine")
+
+    # Every actual patterned-region interface is a required grid line.
+    for region in simulation_layout.patterned_regions:
+        add(region.z_min_nm, "$dz_oxide_gates_medium")
+        add(region.z_max_nm, "$dz_oxide_gates_medium")
+
+    return sorted(requirements.items())
+
+
+def render_grid_block(
+    simulation_layout: SimulationLayout,
+    *,
+    z_grid_policy: Optional[AdaptiveZGridPolicy] = None,
+) -> str:
     d = simulation_layout.domain
 
     x_lines = {d.x_min_nm, d.x_max_nm}
     y_lines = {d.y_min_nm, d.y_max_nm}
-    z_lines = {d.z_min_nm, d.z_max_nm, -15.0, 0.0, 101.0}
 
     for region in simulation_layout.patterned_regions:
         x_lines.update([region.x_min_nm, region.x_max_nm])
         y_lines.update([region.y_min_nm, region.y_max_nm])
-        z_lines.update([region.z_min_nm, region.z_max_nm])
 
     def render_axis(axis: str, values: Iterable[float], spacing: str) -> List[str]:
         lines = [f"    {axis}grid{{"]
@@ -355,7 +514,15 @@ def render_grid_block(simulation_layout: SimulationLayout) -> str:
     lines = ["grid{"]
     lines.extend(render_axis("x", x_lines, "$dx_QD"))
     lines.extend(render_axis("y", y_lines, "$dy_QD"))
-    lines.extend(render_axis("z", z_lines, "$dz_oxide_gates_medium"))
+    lines.append("    zgrid{")
+    for position, spacing in build_adaptive_z_grid_lines(
+        simulation_layout,
+        policy=z_grid_policy,
+    ):
+        lines.append(
+            f"        line{{ pos = {_fmt(position)} spacing = {spacing} }}"
+        )
+    lines.append("    }")
     lines.append("}")
 
     return "\n".join(lines)
@@ -427,6 +594,7 @@ def write_nextnano_input_from_template(
     replace_grid: bool = True,
     replace_quantum: bool = True,
     replace_run: bool = True,
+    z_grid_policy: Optional[AdaptiveZGridPolicy] = None,
 ) -> Path:
     """
     Write a nextnano input file from a reference template.
@@ -456,7 +624,14 @@ def write_nextnano_input_from_template(
         text = replace_block(text, "structure", render_structure_block(simulation_layout))
 
     if replace_grid:
-        text = replace_block(text, "grid", render_grid_block(simulation_layout))
+        text = replace_block(
+            text,
+            "grid",
+            render_grid_block(
+                simulation_layout,
+                z_grid_policy=z_grid_policy,
+            ),
+        )
 
     if replace_quantum:
         text = replace_block(text, "quantum", render_quantum_block(simulation_layout))

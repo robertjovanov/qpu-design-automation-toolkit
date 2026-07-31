@@ -47,9 +47,6 @@ _Z_SPACING_FINENESS = {
     "$dz_cap_fine": 6,
 }
 
-_BODY_CONTACT_THICKNESS_NM = 5.0
-
-
 def _fmt(value: float) -> str:
     return f"{float(value):.10g}"
 
@@ -233,7 +230,6 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
     Add non-layout auxiliary contact regions.
 
     These are not PHIDL gates. They are simulation-control contacts:
-    - Body: bottom/back contact
     - remove_surface_charge: cap/oxide interface contact
     - zero_fermi_QW: QW Fermi-level reference contact
 
@@ -245,10 +241,6 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
     """
     d = simulation_layout.domain
 
-    # Thin bottom body contact at the bottom of the buffer.
-    body_z_min = d.z_min_nm
-    body_z_max = d.z_min_nm + _BODY_CONTACT_THICKNESS_NM
-
     # Thin region at the SiGe-cap / Al2O3 interface.
     remove_surface_z_min = 100.0
     remove_surface_z_max = 101.0
@@ -258,16 +250,6 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
     qw_z_max = 0.0
 
     return f"""
-    # auxiliary contact: Body
-    region{{
-        cuboid{{
-            x = [{_fmt(d.x_min_nm)}, {_fmt(d.x_max_nm)}]
-            y = [{_fmt(d.y_min_nm)}, {_fmt(d.y_max_nm)}]
-            z = [{_fmt(body_z_min)}, {_fmt(body_z_max)}]
-        }}
-        contact{{ name = Body }}
-    }}
-
     # auxiliary fermi_hole contact: remove_surface_charge
     region{{
         cuboid{{
@@ -319,6 +301,9 @@ def render_structure_block(simulation_layout: SimulationLayout) -> str:
 
         if bg.name == "Ge_QW":
             region_lines.append("        integrate{ hole_density{} }")
+
+        if bg.contact_name is not None:
+            region_lines.append(f"        contact{{ name = {bg.contact_name} }}")
 
         region_lines.append("    }")
         region_lines.append("")
@@ -431,14 +416,13 @@ def build_adaptive_z_grid_lines(
 
     # Domain and continuous material interfaces.
     add(d.z_min_nm, "$dz_buffer_coarse")
-    add(
-        d.z_min_nm + _BODY_CONTACT_THICKNESS_NM,
-        "$dz_buffer_coarse",
-    )
     add(d.z_max_nm, "$dz_oxide_gates_medium")
 
     for region in simulation_layout.background_regions:
-        if region.name == buffer.name:
+        if region.contact_name == "Body":
+            add(region.z_min_nm, "$dz_buffer_coarse")
+            add(region.z_max_nm, "$dz_buffer_coarse")
+        elif region.name == buffer.name:
             add(region.z_min_nm, "$dz_buffer_coarse")
             add(region.z_max_nm, "$dz_QW_fine")
         elif region.name == quantum_well.name:

@@ -22,6 +22,7 @@ class MaterialLayer:
     z_max_nm: float
     alloy_x: Optional[float] = None
     notes: Optional[str] = None
+    contact_name: Optional[str] = None
 
     def thickness_nm(self) -> float:
         return self.z_max_nm - self.z_min_nm
@@ -153,6 +154,7 @@ def make_sige_ge_process_stack(
     name: str = "SiGe_Ge_QW_two_metal_gate_layers",
     z_reference_name: str = "top_of_Ge_QW",
     sige_buffer_thickness_nm: float = 4000.0,
+    body_contact_thickness_nm: float = 100.0,
     ge_qw_thickness_nm: float = 15.0,
     sige_cap_thickness_nm: float = 101.0,
     al2o3_total_thickness_nm: float = 72.0,
@@ -181,6 +183,7 @@ def make_sige_ge_process_stack(
       unless some other rule/layer extends higher
 
     Default physical picture:
+    - full-domain SiGe body contact below the SiGe buffer
     - SiGe buffer below the Ge QW
     - Ge QW
     - SiGe cap above the QW
@@ -197,6 +200,8 @@ def make_sige_ge_process_stack(
     Gates and ohmics override local polygonal regions inside that background.
 
     With the default values:
+    - SiGe body contact: -4115 .. -4015
+    - SiGe buffer:       -4015 ..   -15
     - Ge QW:               -15   ..   0
     - SiGe cap:              0   .. 101
     - Al2O3 dielectric:    101   .. 173
@@ -209,6 +214,8 @@ def make_sige_ge_process_stack(
     """
     if sige_buffer_thickness_nm <= 0:
         raise ValueError("sige_buffer_thickness_nm must be positive.")
+    if body_contact_thickness_nm <= 0:
+        raise ValueError("body_contact_thickness_nm must be positive.")
     if ge_qw_thickness_nm <= 0:
         raise ValueError("ge_qw_thickness_nm must be positive.")
     if sige_cap_thickness_nm <= 0:
@@ -247,6 +254,8 @@ def make_sige_ge_process_stack(
 
     sige_buffer_z_max = ge_qw_z_min
     sige_buffer_z_min = sige_buffer_z_max - sige_buffer_thickness_nm
+    body_contact_z_max = sige_buffer_z_min
+    body_contact_z_min = body_contact_z_max - body_contact_thickness_nm
 
     # -------------------------
     # Patterned gate layers
@@ -342,6 +351,15 @@ def make_sige_ge_process_stack(
         name=name,
         z_reference_name=z_reference_name,
         material_layers=[
+            MaterialLayer(
+                name="SiGe_body_contact",
+                material=buffer_material,
+                z_min_nm=body_contact_z_min,
+                z_max_nm=body_contact_z_max,
+                alloy_x=sige_alloy_x,
+                notes="Full-domain body contact below the SiGe buffer.",
+                contact_name="Body",
+            ),
             MaterialLayer(
                 name="SiGe_buffer",
                 material=buffer_material,

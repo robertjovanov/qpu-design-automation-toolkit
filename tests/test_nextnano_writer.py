@@ -11,6 +11,7 @@ from qd_design import (
     make_reference_sige_ge_process_stack,
     make_sige_ge_process_stack,
     render_grid_block,
+    render_structure_block,
     write_nextnano_input_from_template,
 )
 
@@ -108,9 +109,221 @@ def _extract_block(text, block_name):
     return text[start:end]
 
 
-def _without_grid_block(text):
-    start, end = _block_span(text, "grid")
-    return text[:start] + "<GRID_BLOCK>" + text[end:]
+def _without_blocks(text, block_names):
+    result = text
+    for block_name in block_names:
+        start, end = _block_span(result, block_name)
+        result = result[:start] + f"<{block_name.upper()}_BLOCK>" + result[end:]
+    return result
+
+
+def _region_after_comment(text, comment):
+    comment_start = text.index(comment)
+    suffix = text[comment_start:]
+    start, end = _block_span(suffix, "region")
+    return suffix[start:end]
+
+
+def _background_region(layout, name):
+    matches = [
+        region for region in layout.background_regions if region.name == name
+    ]
+    if len(matches) != 1:
+        raise AssertionError(
+            f"Expected one background region named {name!r}; found {len(matches)}."
+        )
+    return matches[0]
+
+
+class BodyContactGeometryTests(unittest.TestCase):
+    def test_default_body_contact_is_a_distinct_full_domain_sige_layer(self):
+        layout = _simulation_layout()
+        body = _background_region(layout, "SiGe_body_contact")
+        buffer = _background_region(layout, "SiGe_buffer")
+
+        self.assertEqual((body.z_min_nm, body.z_max_nm), (-4115.0, -4015.0))
+        self.assertEqual(body.z_max_nm - body.z_min_nm, 100.0)
+        self.assertEqual(
+            (buffer.z_min_nm, buffer.z_max_nm),
+            (-4015.0, -15.0),
+        )
+        self.assertEqual(buffer.z_max_nm - buffer.z_min_nm, 4000.0)
+
+        self.assertEqual(body.z_max_nm, buffer.z_min_nm)
+        self.assertLess(body.z_min_nm, buffer.z_min_nm)
+        self.assertEqual(
+            (
+                body.x_min_nm,
+                body.x_max_nm,
+                body.y_min_nm,
+                body.y_max_nm,
+            ),
+            (
+                layout.domain.x_min_nm,
+                layout.domain.x_max_nm,
+                layout.domain.y_min_nm,
+                layout.domain.y_max_nm,
+            ),
+        )
+        self.assertEqual(body.material, buffer.material)
+        self.assertEqual(body.alloy_x, buffer.alloy_x)
+        self.assertEqual(body.contact_name, "Body")
+        self.assertEqual(layout.domain.z_min_nm, body.z_min_nm)
+        self.assertEqual(layout.domain.z_max_nm, 173.0)
+
+        structure = render_structure_block(layout)
+        body_block = _region_after_comment(
+            structure,
+            "# background: SiGe_body_contact",
+        )
+        self.assertIn("x = [-260, 260]", body_block)
+        self.assertIn("y = [0, 200]", body_block)
+        self.assertIn("z = [-4115, -4015]", body_block)
+        self.assertIn(
+            'ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = 0.15 }',
+            body_block,
+        )
+        self.assertIn("contact{ name = Body }", body_block)
+
+    def test_body_contact_thickness_changes_only_its_bottom_and_domain_minimum(self):
+        default_layout = _simulation_layout()
+        configured_layout = _simulation_layout(
+            process_stack=make_sige_ge_process_stack(
+                body_contact_thickness_nm=50.0,
+            )
+        )
+        default_body = _background_region(
+            default_layout,
+            "SiGe_body_contact",
+        )
+        configured_body = _background_region(
+            configured_layout,
+            "SiGe_body_contact",
+        )
+
+        self.assertEqual(
+            (configured_body.z_min_nm, configured_body.z_max_nm),
+            (-4065.0, -4015.0),
+        )
+        self.assertEqual(configured_body.z_max_nm, default_body.z_max_nm)
+        self.assertEqual(
+            configured_body.z_min_nm,
+            default_body.z_min_nm + 50.0,
+        )
+        self.assertEqual(
+            configured_layout.domain.z_min_nm,
+            configured_body.z_min_nm,
+        )
+        self.assertEqual(
+            configured_layout.domain.z_max_nm,
+            default_layout.domain.z_max_nm,
+        )
+        self.assertEqual(
+            [
+                region.to_dict()
+                for region in configured_layout.background_regions
+                if region.name != "SiGe_body_contact"
+            ],
+            [
+                region.to_dict()
+                for region in default_layout.background_regions
+                if region.name != "SiGe_body_contact"
+            ],
+        )
+        self.assertEqual(
+            configured_layout.patterned_regions,
+            default_layout.patterned_regions,
+        )
+        self.assertEqual(
+            (
+                configured_layout.domain.x_min_nm,
+                configured_layout.domain.x_max_nm,
+                configured_layout.domain.y_min_nm,
+                configured_layout.domain.y_max_nm,
+            ),
+            (
+                default_layout.domain.x_min_nm,
+                default_layout.domain.x_max_nm,
+                default_layout.domain.y_min_nm,
+                default_layout.domain.y_max_nm,
+            ),
+        )
+
+    def test_buffer_thickness_moves_the_body_contact_chain_consistently(self):
+        layout = _simulation_layout(
+            process_stack=make_sige_ge_process_stack(
+                sige_buffer_thickness_nm=5200.0,
+            )
+        )
+        body = _background_region(layout, "SiGe_body_contact")
+        buffer = _background_region(layout, "SiGe_buffer")
+
+        self.assertEqual(
+            (buffer.z_min_nm, buffer.z_max_nm),
+            (-5215.0, -15.0),
+        )
+        self.assertEqual(
+            (body.z_min_nm, body.z_max_nm),
+            (-5315.0, -5215.0),
+        )
+        self.assertEqual(body.z_max_nm, buffer.z_min_nm)
+        self.assertEqual(layout.domain.z_min_nm, body.z_min_nm)
+
+    def test_qw_thickness_moves_the_buffer_and_body_chain_consistently(self):
+        layout = _simulation_layout(
+            process_stack=make_sige_ge_process_stack(
+                ge_qw_thickness_nm=24.0,
+            )
+        )
+        body = _background_region(layout, "SiGe_body_contact")
+        buffer = _background_region(layout, "SiGe_buffer")
+        quantum_well = _background_region(layout, "Ge_QW")
+
+        self.assertEqual(
+            (quantum_well.z_min_nm, quantum_well.z_max_nm),
+            (-24.0, 0.0),
+        )
+        self.assertEqual(
+            (buffer.z_min_nm, buffer.z_max_nm),
+            (-4024.0, -24.0),
+        )
+        self.assertEqual(
+            (body.z_min_nm, body.z_max_nm),
+            (-4124.0, -4024.0),
+        )
+        self.assertEqual(body.z_max_nm, buffer.z_min_nm)
+        self.assertEqual(buffer.z_max_nm, quantum_well.z_min_nm)
+
+    def test_body_contact_thickness_must_be_positive(self):
+        for invalid_thickness in (0.0, -1.0):
+            with self.subTest(body_contact_thickness_nm=invalid_thickness):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "body_contact_thickness_nm must be positive",
+                ):
+                    make_sige_ge_process_stack(
+                        body_contact_thickness_nm=invalid_thickness,
+                    )
+
+    def test_body_contact_reuses_the_configured_buffer_alloy(self):
+        layout = _simulation_layout(
+            process_stack=make_sige_ge_process_stack(
+                sige_alloy_x=0.22,
+            )
+        )
+        body = _background_region(layout, "SiGe_body_contact")
+        buffer = _background_region(layout, "SiGe_buffer")
+
+        self.assertEqual((body.material, body.alloy_x), ("SiGe", 0.22))
+        self.assertEqual(
+            (body.material, body.alloy_x),
+            (buffer.material, buffer.alloy_x),
+        )
+        body_block = _region_after_comment(
+            render_structure_block(layout),
+            "# background: SiGe_body_contact",
+        )
+        self.assertIn("alloy_x = 0.22", body_block)
 
 
 class AdaptiveNextnanoZGridTests(unittest.TestCase):
@@ -120,8 +333,8 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
         self.assertEqual(
             build_adaptive_z_grid_lines(layout),
             [
+                (-4115.0, "$dz_buffer_coarse"),
                 (-4015.0, "$dz_buffer_coarse"),
-                (-4010.0, "$dz_buffer_coarse"),
                 (-1015.0, "$dz_buffer_medium"),
                 (-165.0, "$dz_buffer_fine"),
                 (-77.0, "$dz_oxide_gates_medium"),
@@ -181,6 +394,7 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
 
         # Extra buffer thickness moves the lower domain boundary while the
         # physical refinement depths remain anchored to the QW-facing interface.
+        self.assertEqual(default_grid[-5315.0], "$dz_buffer_coarse")
         self.assertEqual(default_grid[-5215.0], "$dz_buffer_coarse")
         self.assertEqual(default_grid[-1015.0], "$dz_buffer_medium")
         self.assertEqual(default_grid[-165.0], "$dz_buffer_fine")
@@ -192,6 +406,7 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
         )
         grid = dict(build_adaptive_z_grid_lines(layout, policy=policy))
 
+        self.assertEqual(grid[-5315.0], "$dz_buffer_coarse")
         self.assertEqual(grid[-5215.0], "$dz_buffer_coarse")
         self.assertEqual(grid[-1215.0], "$dz_buffer_medium")
         self.assertEqual(grid[-240.0], "$dz_buffer_fine")
@@ -300,7 +515,7 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
         self.assertEqual(grid[101.0], "$dz_cap_fine")
         self.assertEqual(grid[173.0], "$dz_oxide_gates_medium")
 
-    def test_representative_generation_changes_only_the_z_grid(self):
+    def test_representative_generation_changes_only_body_domain_and_z_grid(self):
         layout = _simulation_layout()
         voltage_overrides = {
             "V_P1": -3.0,
@@ -336,6 +551,8 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
         )
 
         for block_name in ("output", "contacts", "structure", "quantum", "run"):
+            if block_name == "structure":
+                continue
             with self.subTest(block=block_name):
                 self.assertEqual(
                     _extract_block(generated_text, block_name),
@@ -343,9 +560,45 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            _without_grid_block(generated_text),
-            _without_grid_block(tracked_text),
+            _without_blocks(generated_text, ("structure", "grid")),
+            _without_blocks(tracked_text, ("structure", "grid")),
         )
+
+        unchanged_region_comments = [
+            "# background: SiGe_buffer",
+            "# background: Ge_QW",
+            "# background: SiGe_cap",
+            "# background: Al2O3_dielectric",
+            "# auxiliary fermi_hole contact: remove_surface_charge",
+            "# auxiliary fermi_hole contact: zero_fermi_QW",
+            *[
+                f"# patterned region: {region.name}"
+                for region in layout.patterned_regions
+            ],
+        ]
+        for comment in unchanged_region_comments:
+            with self.subTest(region=comment):
+                self.assertEqual(
+                    _region_after_comment(generated_text, comment),
+                    _region_after_comment(tracked_text, comment),
+                )
+
+        old_body = _region_after_comment(
+            tracked_text,
+            "# auxiliary contact: Body",
+        )
+        new_body = _region_after_comment(
+            generated_text,
+            "# background: SiGe_body_contact",
+        )
+        self.assertIn("z = [-4015, -4010]", old_body)
+        self.assertNotIn("ternary_constant", old_body)
+        self.assertIn("z = [-4115, -4015]", new_body)
+        self.assertIn(
+            'ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = 0.15 }',
+            new_body,
+        )
+        self.assertIn("contact{ name = Body }", new_body)
 
 
 if __name__ == "__main__":

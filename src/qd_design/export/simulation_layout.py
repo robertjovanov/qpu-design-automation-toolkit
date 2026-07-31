@@ -43,6 +43,7 @@ class BackgroundRegion:
     z_max_nm: float
     alloy_x: Optional[float] = None
     notes: Optional[str] = None
+    contact_name: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -202,6 +203,7 @@ def build_simulation_layout(
             z_max_nm=layer.z_max_nm,
             alloy_x=layer.alloy_x,
             notes=layer.notes,
+            contact_name=layer.contact_name,
         )
         for layer in process_stack.material_layers
     ]

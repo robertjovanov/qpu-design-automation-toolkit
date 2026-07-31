@@ -230,20 +230,14 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
     Add non-layout auxiliary contact regions.
 
     These are not PHIDL gates. They are simulation-control contacts:
-    - remove_surface_charge: cap/oxide interface contact
+    - remove_surface_charge: full-cap contact
     - zero_fermi_QW: QW Fermi-level reference contact
 
-    Coordinate convention:
-    - z = 0 nm is the top of the Ge QW
-    - Ge QW spans z = [-15, 0]
-    - SiGe cap spans z = [0, 101]
-    - oxide starts at z = 101
+    The surface-charge contact follows the modeled SiGe cap. The QW
+    reference region retains its existing fixed bounds.
     """
     d = simulation_layout.domain
-
-    # Thin region at the SiGe-cap / Al2O3 interface.
-    remove_surface_z_min = 100.0
-    remove_surface_z_max = 101.0
+    cap = _named_background_region(simulation_layout, "SiGe_cap")
 
     # QW reference region.
     qw_z_min = -15.0
@@ -255,7 +249,7 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
         cuboid{{
             x = [{_fmt(d.x_min_nm)}, {_fmt(d.x_max_nm)}]
             y = [{_fmt(d.y_min_nm)}, {_fmt(d.y_max_nm)}]
-            z = [{_fmt(remove_surface_z_min)}, {_fmt(remove_surface_z_max)}]
+            z = [{_fmt(cap.z_min_nm)}, {_fmt(cap.z_max_nm)}]
         }}
         contact{{ name = remove_surface_charge }}
     }}
@@ -373,7 +367,7 @@ def _named_background_region(
     ]
     if len(matches) != 1:
         raise ValueError(
-            f"Adaptive nextnano z-grid requires exactly one background region "
+            f"Nextnano generation requires exactly one background region "
             f"named '{name}'; found {len(matches)}."
         )
     return matches[0]

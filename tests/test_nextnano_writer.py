@@ -62,6 +62,8 @@ def _simulation_layout(
     process_stack=None,
     include_screening_gates=False,
     include_ohmics=True,
+    x_margin_nm=0.0,
+    y_margin_nm=0.0,
 ):
     device = _representative_device(
         include_screening_gates=include_screening_gates,
@@ -78,8 +80,8 @@ def _simulation_layout(
         name="double_dot_simulation_layout",
         layout_elements=layout_spec,
         process_stack=process_stack or make_reference_sige_ge_process_stack(),
-        x_margin_nm=0.0,
-        y_margin_nm=0.0,
+        x_margin_nm=x_margin_nm,
+        y_margin_nm=y_margin_nm,
     )
 
 
@@ -133,6 +135,140 @@ def _background_region(layout, name):
             f"Expected one background region named {name!r}; found {len(matches)}."
         )
     return matches[0]
+
+
+def _cuboid_bounds(region_block):
+    bounds = {}
+    for axis in ("x", "y", "z"):
+        match = re.search(
+            rf"(?m)^[ \t]*{axis}[ \t]*=[ \t]*"
+            r"\[([-+0-9.eE]+),[ \t]*([-+0-9.eE]+)\]",
+            region_block,
+        )
+        if match is None:
+            raise AssertionError(f"Missing {axis}-bounds in region block.")
+        bounds[axis] = (float(match.group(1)), float(match.group(2)))
+    return bounds
+
+
+class RemoveSurfaceChargeGeometryTests(unittest.TestCase):
+    def test_default_contact_matches_the_complete_cap_and_domain(self):
+        layout = _simulation_layout()
+        quantum_well = _background_region(layout, "Ge_QW")
+        cap = _background_region(layout, "SiGe_cap")
+        dielectric = _background_region(layout, "Al2O3_dielectric")
+        structure = render_structure_block(layout)
+        cap_block = _region_after_comment(
+            structure,
+            "# background: SiGe_cap",
+        )
+        contact_block = _region_after_comment(
+            structure,
+            "# auxiliary fermi_hole contact: remove_surface_charge",
+        )
+
+        self.assertEqual(
+            _cuboid_bounds(contact_block),
+            {
+                "x": (layout.domain.x_min_nm, layout.domain.x_max_nm),
+                "y": (layout.domain.y_min_nm, layout.domain.y_max_nm),
+                "z": (0.0, 101.0),
+            },
+        )
+        self.assertEqual(
+            _cuboid_bounds(contact_block),
+            _cuboid_bounds(cap_block),
+        )
+        self.assertEqual(cap.z_min_nm, quantum_well.z_max_nm)
+        self.assertEqual(cap.z_max_nm, dielectric.z_min_nm)
+        self.assertIn(
+            "contact{ name = remove_surface_charge }",
+            contact_block,
+        )
+
+        # The auxiliary region overlaps the cap to assign the contact. It
+        # neither replaces nor duplicates the modeled cap material.
+        self.assertNotIn("binary{", contact_block)
+        self.assertNotIn("ternary_constant{", contact_block)
+        self.assertIn(
+            'ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = 0.15 }',
+            cap_block,
+        )
+        self.assertNotIn("contact{", cap_block)
+
+    def test_contact_follows_configured_cap_thickness_and_qw_reference(self):
+        layout = _simulation_layout(
+            process_stack=make_sige_ge_process_stack(
+                ge_qw_thickness_nm=24.0,
+                sige_cap_thickness_nm=121.0,
+            )
+        )
+        quantum_well = _background_region(layout, "Ge_QW")
+        cap = _background_region(layout, "SiGe_cap")
+        dielectric = _background_region(layout, "Al2O3_dielectric")
+        contact_block = _region_after_comment(
+            render_structure_block(layout),
+            "# auxiliary fermi_hole contact: remove_surface_charge",
+        )
+
+        self.assertEqual(
+            (quantum_well.z_min_nm, quantum_well.z_max_nm),
+            (-24.0, 0.0),
+        )
+        self.assertEqual((cap.z_min_nm, cap.z_max_nm), (0.0, 121.0))
+        self.assertEqual(
+            _cuboid_bounds(contact_block)["z"],
+            (cap.z_min_nm, cap.z_max_nm),
+        )
+        self.assertEqual(cap.z_min_nm, quantum_well.z_max_nm)
+        self.assertEqual(cap.z_max_nm, dielectric.z_min_nm)
+        self.assertEqual(
+            cap.z_max_nm - cap.z_min_nm,
+            121.0,
+        )
+
+    def test_contact_follows_lateral_simulation_domain_bounds(self):
+        layout = _simulation_layout(
+            x_margin_nm=12.5,
+            y_margin_nm=35.0,
+        )
+        cap = _background_region(layout, "SiGe_cap")
+        contact_block = _region_after_comment(
+            render_structure_block(layout),
+            "# auxiliary fermi_hole contact: remove_surface_charge",
+        )
+        contact_bounds = _cuboid_bounds(contact_block)
+
+        self.assertEqual(
+            contact_bounds["x"],
+            (layout.domain.x_min_nm, layout.domain.x_max_nm),
+        )
+        self.assertEqual(
+            contact_bounds["y"],
+            (layout.domain.y_min_nm, layout.domain.y_max_nm),
+        )
+        self.assertEqual(
+            contact_bounds,
+            {
+                "x": (-272.5, 272.5),
+                "y": (-35.0, 235.0),
+                "z": (cap.z_min_nm, cap.z_max_nm),
+            },
+        )
+
+    def test_contact_requires_the_semantically_named_cap_region(self):
+        layout = _simulation_layout()
+        layout.background_regions = [
+            region
+            for region in layout.background_regions
+            if region.name != "SiGe_cap"
+        ]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "exactly one background region named 'SiGe_cap'; found 0",
+        ):
+            render_structure_block(layout)
 
 
 class BodyContactGeometryTests(unittest.TestCase):
@@ -515,7 +651,7 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
         self.assertEqual(grid[101.0], "$dz_cap_fine")
         self.assertEqual(grid[173.0], "$dz_oxide_gates_medium")
 
-    def test_representative_generation_changes_only_body_domain_and_z_grid(self):
+    def test_representative_generation_changes_only_expected_geometry(self):
         layout = _simulation_layout()
         voltage_overrides = {
             "V_P1": -3.0,
@@ -569,7 +705,6 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
             "# background: Ge_QW",
             "# background: SiGe_cap",
             "# background: Al2O3_dielectric",
-            "# auxiliary fermi_hole contact: remove_surface_charge",
             "# auxiliary fermi_hole contact: zero_fermi_QW",
             *[
                 f"# patterned region: {region.name}"
@@ -582,6 +717,24 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
                     _region_after_comment(generated_text, comment),
                     _region_after_comment(tracked_text, comment),
                 )
+
+        old_surface_contact = _region_after_comment(
+            tracked_text,
+            "# auxiliary fermi_hole contact: remove_surface_charge",
+        )
+        new_surface_contact = _region_after_comment(
+            generated_text,
+            "# auxiliary fermi_hole contact: remove_surface_charge",
+        )
+        self.assertIn("z = [100, 101]", old_surface_contact)
+        self.assertIn("z = [0, 101]", new_surface_contact)
+        self.assertEqual(
+            old_surface_contact.replace(
+                "z = [100, 101]",
+                "z = [0, 101]",
+            ),
+            new_surface_contact,
+        )
 
         old_body = _region_after_comment(
             tracked_text,

@@ -55,6 +55,31 @@ _SWEEP_RUN_COLUMNS = (
     "error",
 )
 
+_PLOT_FONT_DEFAULTS = {
+    "matplotlib": {
+        "title": 12.0,
+        "axis_title": 10.0,
+        "tick": 10.0,
+        "legend": 10.0,
+        "colorbar_title": 10.0,
+        "colorbar_tick": 10.0,
+        "annotation": 8.0,
+        "linecut_annotation": 9.0,
+        "compact_legend": 8.0,
+    },
+    "plotly": {
+        "text": 12.0,
+        "title": 17.0,
+        "axis_title": 14.0,
+        "tick": 12.0,
+        "legend": 12.0,
+        "colorbar_title": 14.0,
+        "colorbar_tick": 12.0,
+        "annotation": 12.0,
+        "gate_annotation": 11.0,
+    },
+}
+
 
 @dataclass(frozen=True)
 class AxisData:
@@ -157,6 +182,85 @@ def _import_plotly_go():
     import plotly.graph_objects as go
 
     return go
+
+
+def _validate_font_scale(font_scale: float) -> float:
+    try:
+        scale = float(font_scale)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("font_scale must be a positive finite number.") from exc
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("font_scale must be a positive finite number.")
+    return scale
+
+
+def _apply_matplotlib_font_scale(figure: Any, font_scale: float) -> None:
+    if font_scale == 1.0:
+        return
+
+    from matplotlib.text import Text
+
+    for text_artist in figure.findobj(match=Text):
+        text_artist.set_fontsize(text_artist.get_fontsize() * font_scale)
+
+
+def _apply_plotly_font_scale(figure: Any, font_scale: float) -> None:
+    if font_scale == 1.0:
+        return
+
+    fonts = _PLOT_FONT_DEFAULTS["plotly"]
+    layout_properties = figure.layout.to_plotly_json()
+    figure.update_layout(
+        font=dict(size=fonts["text"] * font_scale),
+        title_font=dict(size=fonts["title"] * font_scale),
+        legend=dict(font=dict(size=fonts["legend"] * font_scale)),
+    )
+
+    for axis_name in (
+        name for name in layout_properties if re.fullmatch(r"[xy]axis\d*", name)
+    ):
+        getattr(figure.layout, axis_name).update(
+            title=dict(font=dict(size=fonts["axis_title"] * font_scale)),
+            tickfont=dict(size=fonts["tick"] * font_scale),
+        )
+
+    for scene_name in (
+        name for name in layout_properties if re.fullmatch(r"scene\d*", name)
+    ):
+        scene = getattr(figure.layout, scene_name)
+        for axis_name in ("xaxis", "yaxis", "zaxis"):
+            getattr(scene, axis_name).update(
+                title=dict(font=dict(size=fonts["axis_title"] * font_scale)),
+                tickfont=dict(size=fonts["tick"] * font_scale),
+            )
+
+    for annotation in figure.layout.annotations or ():
+        base_size = annotation.font.size or fonts["annotation"]
+        annotation.font.size = base_size * font_scale
+
+    for trace in figure.data:
+        colorbar = getattr(trace, "colorbar", None)
+        if colorbar is not None:
+            colorbar.title.font.size = fonts["colorbar_title"] * font_scale
+            colorbar.tickfont.size = fonts["colorbar_tick"] * font_scale
+
+
+def apply_plot_font_scale(figure: Any, *, font_scale: float = 1.0):
+    """Scale text in a Matplotlib or Plotly figure without changing globals."""
+    scale = _validate_font_scale(font_scale)
+
+    from matplotlib.figure import Figure as MatplotlibFigure
+
+    if isinstance(figure, MatplotlibFigure):
+        _apply_matplotlib_font_scale(figure, scale)
+        return figure
+
+    go = _import_plotly_go()
+    if isinstance(figure, go.Figure):
+        _apply_plotly_font_scale(figure, scale)
+        return figure
+
+    raise TypeError("figure must be a Matplotlib or Plotly Figure.")
 
 
 def _coerce_path(path: str | Path) -> Path:
@@ -2312,7 +2416,7 @@ def _add_matplotlib_x_markers(ax: Any, markers: Sequence[Mapping[str, Any] | Seq
                 va="top",
                 ha="right",
                 color=color,
-                fontsize=8,
+                fontsize=_PLOT_FONT_DEFAULTS["matplotlib"]["annotation"],
                 alpha=marker["alpha"],
             )
 
@@ -2336,7 +2440,7 @@ def _add_matplotlib_y_markers(ax: Any, markers: Sequence[Mapping[str, Any] | Seq
                 va="bottom",
                 ha="left",
                 color=color,
-                fontsize=8,
+                fontsize=_PLOT_FONT_DEFAULTS["matplotlib"]["annotation"],
                 alpha=marker["alpha"],
                 bbox=dict(facecolor="white", edgecolor="none", alpha=0.55, pad=1.5),
             )
@@ -2889,7 +2993,9 @@ def plot_vtr_slice(
     log10: bool = False,
     cmap: str = "magma",
     product: str = DEFAULT_PRODUCT,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     selected = [variable] if variable is not None else None
     dataset = _load_vtr_dataset(path, variable_names=selected)
     variable_data = _get_variable_data(dataset, variable)
@@ -2922,6 +3028,7 @@ def plot_vtr_slice(
         ax.set_xlim(*xlim)
     if ylim is not None:
         ax.set_ylim(*ylim)
+    apply_plot_font_scale(fig, font_scale=font_scale)
     fig.tight_layout()
     return fig
 
@@ -2939,7 +3046,9 @@ def plot_vtr_slice_interactive(
     log10: bool = False,
     colorscale: str = "Turbo",
     product: str = DEFAULT_PRODUCT,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     selected = [variable] if variable is not None else None
     dataset = _load_vtr_dataset(path, variable_names=selected)
     variable_data = _get_variable_data(dataset, variable)
@@ -2979,6 +3088,7 @@ def plot_vtr_slice_interactive(
         fig.update_xaxes(range=[xlim[0], xlim[1]])
     if ylim is not None:
         fig.update_yaxes(range=[ylim[0], ylim[1]])
+    apply_plot_font_scale(fig, font_scale=font_scale)
     return _display_plotly_figure(fig)
 
 
@@ -2994,7 +3104,9 @@ def plot_vtr_linecut(
     yscale: str = "linear",
     interactive: bool = False,
     product: str = DEFAULT_PRODUCT,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     selected = [variable] if variable is not None else None
     dataset = _load_vtr_dataset(path, variable_names=selected)
     variable_data = _get_variable_data(dataset, variable)
@@ -3030,6 +3142,7 @@ def plot_vtr_linecut(
             fig.update_xaxes(range=[xlim[0], xlim[1]])
         if ylim is not None:
             fig.update_yaxes(range=[ylim[0], ylim[1]])
+        apply_plot_font_scale(fig, font_scale=font_scale)
         return _display_plotly_figure(fig)
 
     plt = _import_matplotlib_pyplot()
@@ -3042,11 +3155,20 @@ def plot_vtr_linecut(
     ax.grid(alpha=0.25)
     if line["chosen_coords"]:
         subtitle = ", ".join(f"{name}={value:.3f}" for name, value in line["chosen_coords"].items())
-        ax.text(0.99, 0.98, subtitle, transform=ax.transAxes, ha="right", va="top", fontsize=9)
+        ax.text(
+            0.99,
+            0.98,
+            subtitle,
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=_PLOT_FONT_DEFAULTS["matplotlib"]["linecut_annotation"],
+        )
     if xlim is not None:
         ax.set_xlim(*xlim)
     if ylim is not None:
         ax.set_ylim(*ylim)
+    apply_plot_font_scale(fig, font_scale=font_scale)
     fig.tight_layout()
     return fig
 
@@ -3110,6 +3232,7 @@ def plot_vtr_volume_interactive(
     surface_count: int = 12,
     colorscale: str = "Turbo",
     product: str = DEFAULT_PRODUCT,
+    font_scale: float = 1.0,
 ):
     """Plot a downsampled 3D view of a rectilinear-grid `.vtr` output.
 
@@ -3118,6 +3241,7 @@ def plot_vtr_volume_interactive(
     focus on a region such as the quantum well, and `strides` or `max_points` to
     control downsampling.
     """
+    font_scale = _validate_font_scale(font_scale)
     selected = [variable] if variable is not None else None
     dataset = _load_vtr_dataset(path, variable_names=selected)
     if dataset.ndim != 3:
@@ -3228,6 +3352,7 @@ def plot_vtr_volume_interactive(
             f"{coord_names[2]}=%{{z:.3f}}<extra></extra>"
         )
     )
+    apply_plot_font_scale(fig, font_scale=font_scale)
     return _display_plotly_figure(fig)
 
 
@@ -3248,7 +3373,9 @@ def plot_bias_volume_3d(
     opacity: float = 0.16,
     surface_count: int = 12,
     colorscale: str = "Turbo",
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_bias_output_file(run_root, quantity, bias=bias, preferred_extensions=("vtr",))
     return plot_vtr_volume_interactive(
         path,
@@ -3264,6 +3391,7 @@ def plot_bias_volume_3d(
         opacity=opacity,
         surface_count=surface_count,
         colorscale=colorscale,
+        font_scale=font_scale,
     )
 
 
@@ -3636,7 +3764,10 @@ def plot_gate_bandedge_density_3d(
                 z=[gate_z + 0.04 * profile_span],
                 text=[str(region.get("name", ""))],
                 mode="text",
-                textfont=dict(color=gate_color, size=11),
+                textfont=dict(
+                    color=gate_color,
+                    size=_PLOT_FONT_DEFAULTS["plotly"]["gate_annotation"],
+                ),
                 showlegend=False,
                 hoverinfo="skip",
             )
@@ -3716,7 +3847,9 @@ def plot_convergence(
     logy: bool = True,
     interactive: bool = False,
     residual_targets: Mapping[str, float] | None = None,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     df = read_convergence_table(bias_dir)
     x_column = df.columns[0]
     residual_columns = [column for column in df.columns if "Residual" in column]
@@ -3739,6 +3872,7 @@ def plot_convergence(
         )
         if logy:
             fig.update_yaxes(type="log")
+        apply_plot_font_scale(fig, font_scale=font_scale)
         return _display_plotly_figure(fig)
 
     plt = _import_matplotlib_pyplot()
@@ -3755,6 +3889,7 @@ def plot_convergence(
         ax.set_yscale("log")
     ax.grid(alpha=0.25)
     ax.legend()
+    apply_plot_font_scale(fig, font_scale=font_scale)
     fig.tight_layout()
     return fig
 
@@ -3919,7 +4054,9 @@ def plot_integrated_density_hole(
     label_with_materials: bool = False,
     cut: str = "1d_z_BG2",
     region_index_offset: int = 1,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = _coerce_path(run_root_or_path)
     run_root = path if path.is_dir() else path.parent
     if path.is_dir():
@@ -3964,6 +4101,7 @@ def plot_integrated_density_hole(
             height=500,
             legend=dict(itemclick="toggle", itemdoubleclick="toggleothers"),
         )
+        apply_plot_font_scale(fig, font_scale=font_scale)
         return _display_plotly_figure(fig)
 
     plt = _import_matplotlib_pyplot()
@@ -3975,6 +4113,7 @@ def plot_integrated_density_hole(
     ax.set_ylabel("Integrated hole density")
     ax.grid(alpha=0.25)
     ax.legend()
+    apply_plot_font_scale(fig, font_scale=font_scale)
     fig.tight_layout()
     return fig
 
@@ -3999,7 +4138,13 @@ def read_total_charges(bias_dir_or_path: str | Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def plot_total_charges(bias_dir_or_path: str | Path, *, interactive: bool = False):
+def plot_total_charges(
+    bias_dir_or_path: str | Path,
+    *,
+    interactive: bool = False,
+    font_scale: float = 1.0,
+):
+    font_scale = _validate_font_scale(font_scale)
     df = read_total_charges(bias_dir_or_path)
     title = f"Total charges: {_coerce_path(bias_dir_or_path).name}"
 
@@ -4013,6 +4158,7 @@ def plot_total_charges(bias_dir_or_path: str | Path, *, interactive: bool = Fals
             template="plotly_white",
             height=500,
         )
+        apply_plot_font_scale(fig, font_scale=font_scale)
         return _display_plotly_figure(fig)
 
     plt = _import_matplotlib_pyplot()
@@ -4022,6 +4168,7 @@ def plot_total_charges(bias_dir_or_path: str | Path, *, interactive: bool = Fals
     ax.set_ylabel("Charge")
     ax.tick_params(axis="x", rotation=35)
     ax.grid(axis="y", alpha=0.2)
+    apply_plot_font_scale(fig, font_scale=font_scale)
     fig.tight_layout()
     return fig
 
@@ -4073,7 +4220,9 @@ def plot_bias_volume_slice(
     title: str | None = None,
     interactive: bool = False,
     log10: bool = False,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_bias_output_file(run_root, quantity, bias=bias, preferred_extensions=("vtr",))
     if interactive:
         return plot_vtr_slice_interactive(
@@ -4084,6 +4233,7 @@ def plot_bias_volume_slice(
             slice_index=slice_index,
             title=title,
             log10=log10,
+            font_scale=font_scale,
         )
     return plot_vtr_slice(
         path,
@@ -4093,6 +4243,7 @@ def plot_bias_volume_slice(
         slice_index=slice_index,
         title=title,
         log10=log10,
+        font_scale=font_scale,
     )
 
 
@@ -4106,7 +4257,9 @@ def plot_bias_volume_linecut(
     fixed_coords: Mapping[str, float] | None = None,
     interactive: bool = False,
     yscale: str = "linear",
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_bias_output_file(run_root, quantity, bias=bias, preferred_extensions=("vtr",))
     return plot_vtr_linecut(
         path,
@@ -4115,6 +4268,7 @@ def plot_bias_volume_linecut(
         fixed_coords=fixed_coords,
         interactive=interactive,
         yscale=yscale,
+        font_scale=font_scale,
     )
 
 
@@ -4136,7 +4290,9 @@ def plot_quantum_density_volume_3d(
     opacity: float = 0.16,
     surface_count: int = 12,
     colorscale: str = "Turbo",
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_quantum_output_file(
         run_root,
         "density",
@@ -4159,6 +4315,7 @@ def plot_quantum_density_volume_3d(
         opacity=opacity,
         surface_count=surface_count,
         colorscale=colorscale,
+        font_scale=font_scale,
     )
 
 
@@ -4175,7 +4332,9 @@ def plot_quantum_density_volume_slice(
     title: str | None = None,
     interactive: bool = False,
     log10: bool = False,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_quantum_output_file(
         run_root,
         "density",
@@ -4193,6 +4352,7 @@ def plot_quantum_density_volume_slice(
             slice_index=slice_index,
             title=title,
             log10=log10,
+            font_scale=font_scale,
         )
     return plot_vtr_slice(
         path,
@@ -4202,6 +4362,7 @@ def plot_quantum_density_volume_slice(
         slice_index=slice_index,
         title=title,
         log10=log10,
+        font_scale=font_scale,
     )
 
 
@@ -4217,7 +4378,9 @@ def plot_quantum_density_volume_linecut(
     title: str | None = None,
     interactive: bool = False,
     yscale: str = "linear",
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_quantum_output_file(
         run_root,
         "density",
@@ -4234,6 +4397,7 @@ def plot_quantum_density_volume_linecut(
         title=title,
         interactive=interactive,
         yscale=yscale,
+        font_scale=font_scale,
     )
 
 
@@ -4258,7 +4422,9 @@ def plot_quantum_probability_volume_3d(
     opacity: float = 0.16,
     surface_count: int = 12,
     colorscale: str = "Turbo",
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_quantum_probability_state_file(
         run_root,
         state=state,
@@ -4284,6 +4450,7 @@ def plot_quantum_probability_volume_3d(
         opacity=opacity,
         surface_count=surface_count,
         colorscale=colorscale,
+        font_scale=font_scale,
     )
 
 
@@ -4303,7 +4470,9 @@ def plot_quantum_probability_volume_slice(
     title: str | None = None,
     interactive: bool = False,
     log10: bool = False,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_quantum_probability_state_file(
         run_root,
         state=state,
@@ -4324,6 +4493,7 @@ def plot_quantum_probability_volume_slice(
             slice_index=slice_index,
             title=title,
             log10=log10,
+            font_scale=font_scale,
         )
     return plot_vtr_slice(
         path,
@@ -4333,6 +4503,7 @@ def plot_quantum_probability_volume_slice(
         slice_index=slice_index,
         title=title,
         log10=log10,
+        font_scale=font_scale,
     )
 
 
@@ -4351,7 +4522,9 @@ def plot_quantum_probability_volume_linecut(
     title: str | None = None,
     interactive: bool = False,
     yscale: str = "linear",
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     path = resolve_quantum_probability_state_file(
         run_root,
         state=state,
@@ -4371,6 +4544,7 @@ def plot_quantum_probability_volume_linecut(
         title=title,
         interactive=interactive,
         yscale=yscale,
+        font_scale=font_scale,
     )
 
 
@@ -4478,7 +4652,9 @@ def plot_quantum_occupation(
     bias: str | int | None = None,
     interactive: bool = True,
     yscale: str = "linear",
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     df = read_quantum_occupation(run_root, region=region, band=band, bias=bias)
     x_column = df.columns[0]
     y_column = df.columns[-1]
@@ -4496,6 +4672,7 @@ def plot_quantum_occupation(
         )
         if yscale == "log":
             fig.update_yaxes(type="log")
+        apply_plot_font_scale(fig, font_scale=font_scale)
         return _display_plotly_figure(fig)
 
     plt = _import_matplotlib_pyplot()
@@ -4505,6 +4682,7 @@ def plot_quantum_occupation(
     ax.set_xlabel(x_column)
     ax.set_ylabel(y_column)
     ax.set_yscale(yscale)
+    apply_plot_font_scale(fig, font_scale=font_scale)
     fig.tight_layout()
     return fig
 
@@ -4537,7 +4715,9 @@ def plot_quantum_energy_spectrum(
     bias: str | int | None = None,
     interactive: bool = True,
     markers: Sequence[Mapping[str, Any] | Sequence[Any]] | None = None,
+    font_scale: float = 1.0,
 ):
+    font_scale = _validate_font_scale(font_scale)
     df = read_quantum_energy_spectrum(run_root, region=region, band=band, kpoint=kpoint, bias=bias)
     x_column = df.columns[0]
     y_column = df.columns[-1]
@@ -4553,6 +4733,7 @@ def plot_quantum_energy_spectrum(
             template="plotly_white",
             height=500,
         )
+        apply_plot_font_scale(fig, font_scale=font_scale)
         return _display_plotly_figure(fig)
 
     plt = _import_matplotlib_pyplot()
@@ -4562,6 +4743,7 @@ def plot_quantum_energy_spectrum(
     ax.set_xlabel(x_column)
     ax.set_ylabel(y_column)
     ax.grid(alpha=0.25)
+    apply_plot_font_scale(fig, font_scale=font_scale)
     fig.tight_layout()
     return fig
 
@@ -4681,7 +4863,10 @@ def plot_quantum_probabilities_linecut(
     ax.set_ylabel("Mixed units")
     ax.grid(alpha=0.25)
     _add_matplotlib_x_markers(ax, markers)
-    ax.legend(ncol=2, fontsize=8)
+    ax.legend(
+        ncol=2,
+        fontsize=_PLOT_FONT_DEFAULTS["matplotlib"]["compact_legend"],
+    )
     fig.tight_layout()
     return fig
 
@@ -4733,6 +4918,7 @@ __all__ = [
     "OutputDataset",
     "RunPaths",
     "VariableData",
+    "apply_plot_font_scale",
     "build_run_name",
     "build_region_material_map",
     "build_sweep",

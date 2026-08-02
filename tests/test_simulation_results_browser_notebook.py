@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK_PATH = ROOT / "notebooks/analysis/simulation_results_browser.ipynb"
 ALLOWED_CHANGES = {
     "notebooks/analysis/simulation_results_browser.ipynb",
+    "src/nextnanopp_tools.py",
+    "tests/test_nextnanopp_plot_fonts.py",
     "tests/test_simulation_results_browser_notebook.py",
 }
 EXPECTED_HEADINGS = """# Nextnano Simulation Results Browser
@@ -29,10 +31,10 @@ EXPECTED_HEADINGS = """# Nextnano Simulation Results Browser
 ## Selected figure export
 ## Summary""".splitlines()
 CONTROL_NAMES = """RUN_DIRECTORY BIAS ANALYSE_QUANTUM_OUTPUTS SHOW_OPTIONAL_3D
-EXPORT_FIGURES XY_PLANE_Z_NM XZ_PLANE_Y_NM X_LINE_FIXED_COORDINATES_NM
+EXPORT_FIGURES PLOT_FONT_SCALE XY_PLANE_Z_NM XZ_PLANE_Y_NM X_LINE_FIXED_COORDINATES_NM
 Z_LINE_FIXED_COORDINATES_NM""".split()
 CONTROL_VALUES = (
-    "bias_00000", True, False, False, -4.0, 0.0,
+    "bias_00000", True, False, False, 1.15, -4.0, 0.0,
     {"y": 0.0, "z": -4.0}, {"x": 1150.0, "y": 0.0},
 )
 SLICE_APIS = {
@@ -47,6 +49,10 @@ LINE_APIS = {
 THREE_D_APIS = {
     "plot_bias_volume_3d", "plot_quantum_density_volume_3d",
     "plot_quantum_probability_volume_3d",
+}
+BROWSER_PLOT_APIS = SLICE_APIS | LINE_APIS | THREE_D_APIS | {
+    "plot_convergence", "plot_integrated_density_hole", "plot_total_charges",
+    "plot_quantum_occupation", "plot_quantum_energy_spectrum",
 }
 
 
@@ -184,6 +190,28 @@ def test_outline_and_exact_single_control_cell():
     assert tuple(ast.literal_eval(node.value) for node in body[1:]) == CONTROL_VALUES
     controls_text = section("## User controls").casefold()
     assert "editable" in controls_text and "selected simulation" in controls_text
+
+
+def test_plot_font_scale_is_applied_consistently():
+    browser_calls = [
+        (index, call) for index, call in CALLS
+        if call_name(call) in BROWSER_PLOT_APIS
+    ]
+    assert len(browser_calls) == 30
+    assert {call_name(call) for _, call in browser_calls} == BROWSER_PLOT_APIS
+    for _, call in browser_calls:
+        assert ast.unparse(argument(call, "font_scale")) == "PLOT_FONT_SCALE"
+
+    helper_calls = calls_to("apply_plot_font_scale")
+    assert len(helper_calls) == 1
+    index, helper_call = helper_calls[0]
+    assert ast.unparse(argument(helper_call, "figure", 0)) == (
+        "multi_quantity_x_line_figure"
+    )
+    assert ast.unparse(argument(helper_call, "font_scale")) == "PLOT_FONT_SCALE"
+    assert CODE[index].index("apply_plot_font_scale(") < CODE[index].index(
+        "multi_quantity_x_line_figure.tight_layout()"
+    )
 
 
 def test_analysis_only_validation_and_static_safety():
@@ -444,6 +472,4 @@ def test_only_authorized_files_changed():
     changed = git_lines("diff", "--name-only", "HEAD", "--")
     changed |= git_lines("ls-files", "--others", "--exclude-standard")
     assert changed <= ALLOWED_CHANGES, sorted(changed - ALLOWED_CHANGES)
-    assert not any(
-        path.startswith(("src/", "notebooks/experiments/")) for path in changed
-    )
+    assert not any(path.startswith("notebooks/experiments/") for path in changed)

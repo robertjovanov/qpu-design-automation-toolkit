@@ -165,7 +165,8 @@ def make_sige_ge_process_stack(
     barrier_gate_bottom_z_nm: float = 108.0,
     plunger_gate_bottom_z_nm: float = 143.0,
     screening_gate_bottom_z_nm: Optional[float] = None,
-    ohmic_depth_from_device_top_nm: float = 250.0,
+    ohmic_penetration_from_semiconductor_surface_nm: Optional[float] = None,
+    ohmic_depth_from_device_top_nm: Optional[float] = None,
     barrier_material: str = "Al",
     plunger_material: str = "Al",
     screening_material: str = "Al",
@@ -192,7 +193,7 @@ def make_sige_ge_process_stack(
     - an optional screening gate layer can be inserted as another patterned
       dielectric-embedded metal layer
     - ohmics are local patterned overrides spanning from the top of the device
-      downward by a specified depth
+      down to a penetration depth measured from the semiconductor surface
 
     Notes
     -----
@@ -207,7 +208,13 @@ def make_sige_ge_process_stack(
     - Al2O3 dielectric:    101   .. 173
     - barrier gates:       108   .. 138
     - plunger gates:       143   .. 173
-    - ohmics:              -77   .. 173
+    - ohmics:             -149   .. 173
+
+    ``ohmic_penetration_from_semiconductor_surface_nm`` is measured down from
+    the top of the SiGe cap and defaults to 250 nm.  The legacy
+    ``ohmic_depth_from_device_top_nm`` parameter remains available with its
+    original device-top-relative meaning.  Supplying both references is
+    ambiguous and therefore rejected.
 
     If ``screening_gate_bottom_z_nm`` is provided, a screening gate rule is
     added. If its thickness is omitted, the plunger gate thickness is reused.
@@ -235,7 +242,26 @@ def make_sige_ge_process_stack(
         )
     if screening_gate_bottom_z_nm is not None and screening_gate_thickness_nm is None:
         screening_gate_thickness_nm = plunger_gate_thickness_nm
-    if ohmic_depth_from_device_top_nm <= 0:
+    if (
+        ohmic_penetration_from_semiconductor_surface_nm is not None
+        and ohmic_depth_from_device_top_nm is not None
+    ):
+        raise ValueError(
+            "Specify only one of "
+            "ohmic_penetration_from_semiconductor_surface_nm and "
+            "ohmic_depth_from_device_top_nm."
+        )
+    if (
+        ohmic_penetration_from_semiconductor_surface_nm is not None
+        and ohmic_penetration_from_semiconductor_surface_nm <= 0
+    ):
+        raise ValueError(
+            "ohmic_penetration_from_semiconductor_surface_nm must be positive."
+        )
+    if (
+        ohmic_depth_from_device_top_nm is not None
+        and ohmic_depth_from_device_top_nm <= 0
+    ):
         raise ValueError("ohmic_depth_from_device_top_nm must be positive.")
     if sige_alloy_x < 0 or sige_alloy_x > 1:
         raise ValueError("sige_alloy_x must be between 0 and 1.")
@@ -279,9 +305,21 @@ def make_sige_ge_process_stack(
         patterned_top_z.append(screening_z_max)
     device_top_z = max(dielectric_z_max, *patterned_top_z)
 
-    # Ohmics span from the top of the device downward by the chosen depth.
+    # Ohmics always reach the device top.  New configurations express their
+    # physical penetration from the named semiconductor surface (the top of
+    # the SiGe cap); the legacy option retains its historical device-top
+    # reference for existing callers.
     ohmic_z_max = device_top_z
-    ohmic_z_min = ohmic_z_max - ohmic_depth_from_device_top_nm
+    if ohmic_depth_from_device_top_nm is not None:
+        ohmic_z_min = ohmic_z_max - ohmic_depth_from_device_top_nm
+    else:
+        penetration_nm = (
+            250.0
+            if ohmic_penetration_from_semiconductor_surface_nm is None
+            else ohmic_penetration_from_semiconductor_surface_nm
+        )
+        semiconductor_surface_z = sige_cap_z_max
+        ohmic_z_min = semiconductor_surface_z - penetration_nm
 
     if barrier_z_max > dielectric_z_max:
         raise ValueError(

@@ -473,7 +473,7 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
                 (-4015.0, "$dz_buffer_coarse"),
                 (-1015.0, "$dz_buffer_medium"),
                 (-165.0, "$dz_buffer_fine"),
-                (-77.0, "$dz_oxide_gates_medium"),
+                (-149.0, "$dz_oxide_gates_medium"),
                 (-20.0, "$dz_QW_coarse"),
                 (-15.0, "$dz_QW_fine"),
                 (0.0, "$dz_QW_fine"),
@@ -628,7 +628,7 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
         self.assertFalse(
             any(region.gate_type == "ohmic" for region in layout.patterned_regions)
         )
-        self.assertNotIn(-77.0, grid)
+        self.assertNotIn(-149.0, grid)
         self.assertEqual(grid[-165.0], "$dz_buffer_fine")
         self.assertEqual(grid[-20.0], "$dz_QW_coarse")
         self.assertEqual(grid[-15.0], "$dz_QW_fine")
@@ -675,20 +675,8 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
 
         tracked_text = TRACKED_GENERATED_PATH.read_text(encoding="utf-8")
         generated_grid = _extract_block(generated_text, "grid")
-        tracked_grid = _extract_block(tracked_text, "grid")
 
-        self.assertEqual(
-            _extract_block(generated_grid, "xgrid"),
-            _extract_block(tracked_grid, "xgrid"),
-        )
-        self.assertEqual(
-            _extract_block(generated_grid, "ygrid"),
-            _extract_block(tracked_grid, "ygrid"),
-        )
-
-        for block_name in ("output", "contacts", "structure", "quantum", "run"):
-            if block_name == "structure":
-                continue
+        for block_name in ("output", "contacts", "run"):
             with self.subTest(block=block_name):
                 self.assertEqual(
                     _extract_block(generated_text, block_name),
@@ -696,8 +684,8 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            _without_blocks(generated_text, ("structure", "grid")),
-            _without_blocks(tracked_text, ("structure", "grid")),
+            _without_blocks(generated_text, ("structure", "grid", "quantum")),
+            _without_blocks(tracked_text, ("structure", "grid", "quantum")),
         )
 
         unchanged_region_comments = [
@@ -705,10 +693,10 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
             "# background: Ge_QW",
             "# background: SiGe_cap",
             "# background: Al2O3_dielectric",
-            "# auxiliary fermi_hole contact: zero_fermi_QW",
             *[
                 f"# patterned region: {region.name}"
                 for region in layout.patterned_regions
+                if region.gate_type != "ohmic"
             ],
         ]
         for comment in unchanged_region_comments:
@@ -752,6 +740,49 @@ class AdaptiveNextnanoZGridTests(unittest.TestCase):
             new_body,
         )
         self.assertIn("contact{ name = Body }", new_body)
+
+        old_zero_fermi = _region_after_comment(
+            tracked_text,
+            "# auxiliary fermi_hole contact: zero_fermi_QW",
+        )
+        new_zero_fermi = _region_after_comment(
+            generated_text,
+            "# auxiliary fermi_hole contact: zero_fermi_QW",
+        )
+        self.assertEqual(_cuboid_bounds(old_zero_fermi)["z"], (-15.0, 0.0))
+        self.assertEqual(_cuboid_bounds(new_zero_fermi)["z"], (-20.0, 5.0))
+
+        for name in ("OC_L", "OC_R"):
+            old_ohmic = _region_after_comment(
+                tracked_text,
+                f"# patterned region: {name}",
+            )
+            new_ohmic = _region_after_comment(
+                generated_text,
+                f"# patterned region: {name}",
+            )
+            self.assertIn("z = [-77, 173]", old_ohmic)
+            self.assertEqual(
+                old_ohmic.replace("z = [-77, 173]", "z = [-149, 173]"),
+                new_ohmic,
+            )
+
+        quantum_bounds = _cuboid_bounds(
+            _extract_block(generated_text, "quantum")
+        )
+        self.assertEqual(quantum_bounds["x"], (-220.0, 220.0))
+        self.assertEqual(quantum_bounds["y"], (20.0, 180.0))
+        self.assertEqual(quantum_bounds["z"], (-20.0, 5.0))
+
+        self.assertIn(
+            "line{ pos = -220 spacing = $dx_QD }",
+            generated_grid,
+        )
+        self.assertIn(
+            "line{ pos = 220 spacing = $dx_QD }",
+            generated_grid,
+        )
+        self.assertNotIn("spacing = $dx_coarse", generated_grid)
 
 
 if __name__ == "__main__":

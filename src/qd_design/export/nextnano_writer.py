@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from .simulation_layout import BackgroundRegion, PatternedRegion, SimulationLayout
+from .simulation_layout import (
+    BackgroundRegion,
+    PatternedRegion,
+    QuantumRegion,
+    QuantumRegionPolicy,
+    SimulationLayout,
+    derive_active_device_bounds,
+    derive_quantum_region,
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +43,36 @@ class AdaptiveZGridPolicy:
                 "buffer_medium_refinement_depth_nm must be greater than "
                 "buffer_fine_refinement_depth_nm."
             )
+
+
+@dataclass(frozen=True)
+class LateralMeshPolicy:
+    """Geometry-aware lateral grid anchors and nextnano spacing variables."""
+
+    active_transition_margin_nm: float = 150.0
+    minimum_coarse_gap_nm: float = 300.0
+    ordinary_x_spacing: str = "$dx"
+    active_x_spacing: str = "$dx_QD"
+    coarse_x_spacing: str = "$dx_coarse"
+    ordinary_y_spacing: str = "$dy"
+    active_y_spacing: str = "$dy_QD"
+
+    def __post_init__(self) -> None:
+        if self.active_transition_margin_nm < 0:
+            raise ValueError("active_transition_margin_nm must be non-negative.")
+        if self.minimum_coarse_gap_nm <= 0:
+            raise ValueError("minimum_coarse_gap_nm must be positive.")
+
+        spacing_fields = {
+            "ordinary_x_spacing": self.ordinary_x_spacing,
+            "active_x_spacing": self.active_x_spacing,
+            "coarse_x_spacing": self.coarse_x_spacing,
+            "ordinary_y_spacing": self.ordinary_y_spacing,
+            "active_y_spacing": self.active_y_spacing,
+        }
+        for name, value in spacing_fields.items():
+            if not value.strip():
+                raise ValueError(f"{name} must not be empty.")
 
 
 _Z_SPACING_FINENESS = {
@@ -225,7 +263,12 @@ def render_contacts_block(simulation_layout: SimulationLayout) -> str:
 
     return "\n".join(lines)
 
-def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str:
+def render_auxiliary_contact_regions(
+    simulation_layout: SimulationLayout,
+    *,
+    quantum_region: Optional[QuantumRegion] = None,
+    quantum_region_policy: Optional[QuantumRegionPolicy] = None,
+) -> str:
     """
     Add non-layout auxiliary contact regions.
 
@@ -233,15 +276,26 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
     - remove_surface_charge: full-cap contact
     - zero_fermi_QW: QW Fermi-level reference contact
 
-    The surface-charge contact follows the modeled SiGe cap. The QW
-    reference region retains its existing fixed bounds.
+    The surface-charge contact follows the modeled SiGe cap.  The QW
+    reference contact uses the same vertical bounds as the quantum solver,
+    while retaining the full lateral simulation domain.
     """
     d = simulation_layout.domain
     cap = _named_background_region(simulation_layout, "SiGe_cap")
-
-    # QW reference region.
-    qw_z_min = -15.0
-    qw_z_max = 0.0
+    if quantum_region is None:
+        quantum_region_policy = quantum_region_policy or QuantumRegionPolicy()
+        quantum_well = _named_background_region(simulation_layout, "Ge_QW")
+        quantum_z_min_nm = (
+            quantum_well.z_min_nm
+            - quantum_region_policy.quantum_well_z_padding_nm
+        )
+        quantum_z_max_nm = (
+            quantum_well.z_max_nm
+            + quantum_region_policy.quantum_well_z_padding_nm
+        )
+    else:
+        quantum_z_min_nm = quantum_region.z_min_nm
+        quantum_z_max_nm = quantum_region.z_max_nm
 
     return f"""
     # auxiliary fermi_hole contact: remove_surface_charge
@@ -259,14 +313,19 @@ def render_auxiliary_contact_regions(simulation_layout: SimulationLayout) -> str
         cuboid{{
             x = [{_fmt(d.x_min_nm)}, {_fmt(d.x_max_nm)}]
             y = [{_fmt(d.y_min_nm)}, {_fmt(d.y_max_nm)}]
-            z = [{_fmt(qw_z_min)}, {_fmt(qw_z_max)}]
+            z = [{_fmt(quantum_z_min_nm)}, {_fmt(quantum_z_max_nm)}]
         }}
         contact{{ name = zero_fermi_QW }}
     }}
 """
 
 
-def render_structure_block(simulation_layout: SimulationLayout) -> str:
+def render_structure_block(
+    simulation_layout: SimulationLayout,
+    *,
+    quantum_region: Optional[QuantumRegion] = None,
+    quantum_region_policy: Optional[QuantumRegionPolicy] = None,
+) -> str:
     d = simulation_layout.domain
 
     lines = [
@@ -305,7 +364,13 @@ def render_structure_block(simulation_layout: SimulationLayout) -> str:
         lines.extend(region_lines)
 
     # Auxiliary contacts not coming from PHIDL.
-    lines.append(render_auxiliary_contact_regions(simulation_layout))
+    lines.append(
+        render_auxiliary_contact_regions(
+            simulation_layout,
+            quantum_region=quantum_region,
+            quantum_region_policy=quantum_region_policy,
+        )
+    )
     lines.append("")
 
     # Patterned override regions.
@@ -339,7 +404,8 @@ def render_structure_block(simulation_layout: SimulationLayout) -> str:
 def render_output_block(simulation_layout: SimulationLayout) -> str:
     d = simulation_layout.domain
 
-    z_qw_mid = -7.5
+    quantum_well = _named_background_region(simulation_layout, "Ge_QW")
+    z_qw_mid = 0.5 * (quantum_well.z_min_nm + quantum_well.z_max_nm)
     y_mid = 0.5 * (d.y_min_nm + d.y_max_nm)
 
     return f"""output{{
@@ -376,6 +442,8 @@ def _named_background_region(
 def build_adaptive_z_grid_lines(
     simulation_layout: SimulationLayout,
     policy: Optional[AdaptiveZGridPolicy] = None,
+    *,
+    quantum_region: Optional[QuantumRegion] = None,
 ) -> List[Tuple[float, str]]:
     """Return sorted, deduplicated ``(position_nm, spacing_variable)`` pairs."""
     policy = policy or AdaptiveZGridPolicy()
@@ -384,6 +452,16 @@ def build_adaptive_z_grid_lines(
     buffer = _named_background_region(simulation_layout, "SiGe_buffer")
     quantum_well = _named_background_region(simulation_layout, "Ge_QW")
     cap = _named_background_region(simulation_layout, "SiGe_cap")
+    quantum_z_min_nm = (
+        quantum_region.z_min_nm
+        if quantum_region is not None
+        else quantum_well.z_min_nm - policy.quantum_margin_nm
+    )
+    quantum_z_max_nm = (
+        quantum_region.z_max_nm
+        if quantum_region is not None
+        else quantum_well.z_max_nm + policy.quantum_margin_nm
+    )
 
     requirements: Dict[float, str] = {}
     domain_min = float(_fmt(d.z_min_nm))
@@ -440,17 +518,11 @@ def build_adaptive_z_grid_lines(
     if buffer.z_min_nm < buffer_fine_z < buffer.z_max_nm:
         add(buffer_fine_z, "$dz_buffer_fine")
 
-    # QW interfaces and the quantum-region refinement margin.
-    add(
-        quantum_well.z_min_nm - policy.quantum_margin_nm,
-        "$dz_QW_coarse",
-    )
+    # QW interfaces and the shared quantum-region bounds.
+    add(quantum_z_min_nm, "$dz_QW_coarse")
     add(quantum_well.z_min_nm, "$dz_QW_fine")
     add(quantum_well.z_max_nm, "$dz_QW_fine")
-    add(
-        quantum_well.z_max_nm + policy.quantum_margin_nm,
-        "$dz_QW_coarse",
-    )
+    add(quantum_z_max_nm, "$dz_QW_coarse")
 
     # Resolve the final cap slice and the cap/dielectric interface.
     cap_fine_start_z = max(
@@ -468,34 +540,235 @@ def build_adaptive_z_grid_lines(
     return sorted(requirements.items())
 
 
+def build_lateral_grid_lines(
+    simulation_layout: SimulationLayout,
+    *,
+    quantum_region: Optional[QuantumRegion] = None,
+    quantum_region_policy: Optional[QuantumRegionPolicy] = None,
+    policy: Optional[LateralMeshPolicy] = None,
+) -> Tuple[List[Tuple[float, str]], List[Tuple[float, str]]]:
+    """Build sorted, unique geometry-aware x/y grid-line specifications."""
+    policy = policy or LateralMeshPolicy()
+    quantum_region_policy = quantum_region_policy or QuantumRegionPolicy()
+    quantum_region = quantum_region or derive_quantum_region(
+        simulation_layout,
+        policy=quantum_region_policy,
+    )
+    d = simulation_layout.domain
+    active = derive_active_device_bounds(
+        simulation_layout,
+        excluded_gate_types=quantum_region_policy.excluded_gate_types,
+    )
+
+    x_requirements: Dict[float, Tuple[str, int]] = {}
+    y_requirements: Dict[float, Tuple[str, int]] = {}
+    x_domain_min = float(_fmt(d.x_min_nm))
+    x_domain_max = float(_fmt(d.x_max_nm))
+    y_domain_min = float(_fmt(d.y_min_nm))
+    y_domain_max = float(_fmt(d.y_max_nm))
+
+    def add(
+        requirements: Dict[float, Tuple[str, int]],
+        position_nm: float,
+        spacing: str,
+        priority: int,
+        domain_min_nm: float,
+        domain_max_nm: float,
+    ) -> None:
+        position = float(_fmt(position_nm))
+        if position == 0:
+            position = 0.0
+        if position < domain_min_nm or position > domain_max_nm:
+            return
+
+        current = requirements.get(position)
+        if current is None or priority > current[1]:
+            requirements[position] = (spacing, priority)
+
+    def add_x(position_nm: float, spacing: str, priority: int) -> None:
+        add(
+            x_requirements,
+            position_nm,
+            spacing,
+            priority,
+            x_domain_min,
+            x_domain_max,
+        )
+
+    def add_y(position_nm: float, spacing: str, priority: int) -> None:
+        add(
+            y_requirements,
+            position_nm,
+            spacing,
+            priority,
+            y_domain_min,
+            y_domain_max,
+        )
+
+    # Domain bounds use the ordinary mesh.  Fine quantum/active anchors win
+    # any x collision (important when a layout has no ohmics).
+    add_x(d.x_min_nm, policy.ordinary_x_spacing, 1)
+    add_x(d.x_max_nm, policy.ordinary_x_spacing, 1)
+    add_y(d.y_min_nm, policy.ordinary_y_spacing, 1)
+    add_y(d.y_max_nm, policy.ordinary_y_spacing, 1)
+
+    add_x(quantum_region.x_min_nm, policy.active_x_spacing, 2)
+    add_x(quantum_region.x_max_nm, policy.active_x_spacing, 2)
+    add_y(quantum_region.y_min_nm, policy.active_y_spacing, 2)
+    add_y(quantum_region.y_max_nm, policy.active_y_spacing, 2)
+
+    excluded_gate_types = set(quantum_region_policy.excluded_gate_types)
+    active_regions = [
+        region
+        for region in simulation_layout.patterned_regions
+        if region.gate_type not in excluded_gate_types
+    ]
+    excluded_regions = [
+        region
+        for region in simulation_layout.patterned_regions
+        if region.gate_type in excluded_gate_types
+    ]
+
+    for region in active_regions:
+        for position in (
+            region.x_min_nm,
+            0.5 * (region.x_min_nm + region.x_max_nm),
+            region.x_max_nm,
+        ):
+            add_x(position, policy.active_x_spacing, 2)
+
+    transition_margin = policy.active_transition_margin_nm
+    left_transition = active.x_min_nm - transition_margin
+    right_transition = active.x_max_nm + transition_margin
+
+    laterally_relevant_excluded = [
+        region
+        for region in excluded_regions
+        if max(quantum_region.y_min_nm, region.y_min_nm)
+        < min(quantum_region.y_max_nm, region.y_max_nm)
+    ]
+    left_inner_edges = [
+        region.x_max_nm
+        for region in laterally_relevant_excluded
+        if region.x_max_nm <= active.x_min_nm
+    ]
+    right_inner_edges = [
+        region.x_min_nm
+        for region in laterally_relevant_excluded
+        if region.x_min_nm >= active.x_max_nm
+    ]
+    left_gap_boundary = max(left_inner_edges, default=d.x_min_nm)
+    right_gap_boundary = min(right_inner_edges, default=d.x_max_nm)
+    left_gap_is_long = (
+        active.x_min_nm - left_gap_boundary >= policy.minimum_coarse_gap_nm
+    )
+    right_gap_is_long = (
+        right_gap_boundary - active.x_max_nm >= policy.minimum_coarse_gap_nm
+    )
+
+    # Coarse transition anchors are useful only when a real interval remains
+    # outside the quantum box.  This omits/clamps them for short gaps.
+    if (
+        left_gap_is_long
+        and left_gap_boundary < left_transition < quantum_region.x_min_nm
+    ):
+        add_x(left_transition, policy.coarse_x_spacing, 0)
+    if (
+        right_gap_is_long
+        and quantum_region.x_max_nm < right_transition < right_gap_boundary
+    ):
+        add_x(right_transition, policy.coarse_x_spacing, 0)
+
+    for region in excluded_regions:
+        center_x = 0.5 * (region.x_min_nm + region.x_max_nm)
+        add_x(center_x, policy.ordinary_x_spacing, 1)
+
+        if region.x_max_nm <= active.x_min_nm:
+            gap_nm = active.x_min_nm - region.x_max_nm
+            add_x(region.x_min_nm, policy.ordinary_x_spacing, 1)
+            if (
+                gap_nm >= policy.minimum_coarse_gap_nm
+                and region.x_max_nm < left_transition
+            ):
+                add_x(region.x_max_nm, policy.coarse_x_spacing, 0)
+            else:
+                add_x(region.x_max_nm, policy.ordinary_x_spacing, 1)
+        elif region.x_min_nm >= active.x_max_nm:
+            gap_nm = region.x_min_nm - active.x_max_nm
+            if (
+                gap_nm >= policy.minimum_coarse_gap_nm
+                and region.x_min_nm > right_transition
+            ):
+                add_x(region.x_min_nm, policy.coarse_x_spacing, 0)
+            else:
+                add_x(region.x_min_nm, policy.ordinary_x_spacing, 1)
+            add_x(region.x_max_nm, policy.ordinary_x_spacing, 1)
+        else:
+            add_x(region.x_min_nm, policy.ordinary_x_spacing, 1)
+            add_x(region.x_max_nm, policy.ordinary_x_spacing, 1)
+
+    # Y remains uniformly fine for the reference profile, but its anchors are
+    # still derived from the domain, quantum box, and every layout feature.
+    for region in simulation_layout.patterned_regions:
+        for position in (
+            region.y_min_nm,
+            0.5 * (region.y_min_nm + region.y_max_nm),
+            region.y_max_nm,
+        ):
+            add_y(position, policy.active_y_spacing, 2)
+
+    x_lines = [
+        (position, spacing_and_priority[0])
+        for position, spacing_and_priority in sorted(x_requirements.items())
+    ]
+    y_lines = [
+        (position, spacing_and_priority[0])
+        for position, spacing_and_priority in sorted(y_requirements.items())
+    ]
+    return x_lines, y_lines
+
+
 def render_grid_block(
     simulation_layout: SimulationLayout,
     *,
+    quantum_region: Optional[QuantumRegion] = None,
+    quantum_region_policy: Optional[QuantumRegionPolicy] = None,
+    lateral_mesh_policy: Optional[LateralMeshPolicy] = None,
     z_grid_policy: Optional[AdaptiveZGridPolicy] = None,
 ) -> str:
-    d = simulation_layout.domain
+    quantum_region_policy = _resolve_quantum_region_policy(
+        quantum_region_policy,
+        z_grid_policy,
+    )
+    quantum_region = quantum_region or derive_quantum_region(
+        simulation_layout,
+        policy=quantum_region_policy,
+    )
+    x_lines, y_lines = build_lateral_grid_lines(
+        simulation_layout,
+        quantum_region=quantum_region,
+        quantum_region_policy=quantum_region_policy,
+        policy=lateral_mesh_policy,
+    )
 
-    x_lines = {d.x_min_nm, d.x_max_nm}
-    y_lines = {d.y_min_nm, d.y_max_nm}
-
-    for region in simulation_layout.patterned_regions:
-        x_lines.update([region.x_min_nm, region.x_max_nm])
-        y_lines.update([region.y_min_nm, region.y_max_nm])
-
-    def render_axis(axis: str, values: Iterable[float], spacing: str) -> List[str]:
+    def render_axis(
+        axis: str,
+        values: List[Tuple[float, str]],
+    ) -> List[str]:
         lines = [f"    {axis}grid{{"]
-        for value in sorted(values):
+        for value, spacing in values:
             lines.append(f"        line{{ pos = {_fmt(value)} spacing = {spacing} }}")
         lines.append("    }")
         return lines
 
     lines = ["grid{"]
-    lines.extend(render_axis("x", x_lines, "$dx_QD"))
-    lines.extend(render_axis("y", y_lines, "$dy_QD"))
+    lines.extend(render_axis("x", x_lines))
+    lines.extend(render_axis("y", y_lines))
     lines.append("    zgrid{")
     for position, spacing in build_adaptive_z_grid_lines(
         simulation_layout,
         policy=z_grid_policy,
+        quantum_region=quantum_region,
     ):
         lines.append(
             f"        line{{ pos = {_fmt(position)} spacing = {spacing} }}"
@@ -505,6 +778,7 @@ def render_grid_block(
 
     return "\n".join(lines)
 
+
 def render_run_block() -> str:
     return """run{
     !WHEN $strain             strain{}
@@ -513,21 +787,25 @@ def render_run_block() -> str:
     !WHEN $quantum_poisson    quantum_poisson{}
 }"""
 
+
 def render_quantum_block(
     simulation_layout: SimulationLayout,
     *,
     quantum_region_name: str = "c-Ge_QW",
-    z_min_nm: float = -20.0,
-    z_max_nm: float = 5.0,
+    quantum_region: Optional[QuantumRegion] = None,
+    quantum_region_policy: Optional[QuantumRegionPolicy] = None,
 ) -> str:
-    d = simulation_layout.domain
+    quantum_region = quantum_region or derive_quantum_region(
+        simulation_layout,
+        policy=quantum_region_policy,
+    )
 
     return f"""quantum{{
     region{{
         name = "{quantum_region_name}"
-        x = [{_fmt(d.x_min_nm)}, {_fmt(d.x_max_nm)}]
-        y = [{_fmt(d.y_min_nm)}, {_fmt(d.y_max_nm)}]
-        z = [{_fmt(z_min_nm)}, {_fmt(z_max_nm)}]
+        x = [{_fmt(quantum_region.x_min_nm)}, {_fmt(quantum_region.x_max_nm)}]
+        y = [{_fmt(quantum_region.y_min_nm)}, {_fmt(quantum_region.y_max_nm)}]
+        z = [{_fmt(quantum_region.z_min_nm)}, {_fmt(quantum_region.z_max_nm)}]
 
         boundary{{
             x = neumann
@@ -560,6 +838,31 @@ def render_quantum_block(
 }}"""
 
 
+def _resolve_quantum_region_policy(
+    quantum_region_policy: Optional[QuantumRegionPolicy],
+    z_grid_policy: Optional[AdaptiveZGridPolicy],
+) -> QuantumRegionPolicy:
+    """Bridge the legacy z-grid margin into the shared quantum policy."""
+    if quantum_region_policy is None:
+        if z_grid_policy is None:
+            return QuantumRegionPolicy()
+        return QuantumRegionPolicy(
+            quantum_well_z_padding_nm=z_grid_policy.quantum_margin_nm,
+        )
+
+    if (
+        z_grid_policy is not None
+        and quantum_region_policy.quantum_well_z_padding_nm
+        != z_grid_policy.quantum_margin_nm
+    ):
+        raise ValueError(
+            "QuantumRegionPolicy.quantum_well_z_padding_nm and "
+            "AdaptiveZGridPolicy.quantum_margin_nm must match when both "
+            "policies are supplied."
+        )
+    return quantum_region_policy
+
+
 def write_nextnano_input_from_template(
     *,
     simulation_layout: SimulationLayout,
@@ -572,6 +875,8 @@ def write_nextnano_input_from_template(
     replace_grid: bool = True,
     replace_quantum: bool = True,
     replace_run: bool = True,
+    quantum_region_policy: Optional[QuantumRegionPolicy] = None,
+    lateral_mesh_policy: Optional[LateralMeshPolicy] = None,
     z_grid_policy: Optional[AdaptiveZGridPolicy] = None,
 ) -> Path:
     """
@@ -582,6 +887,16 @@ def write_nextnano_input_from_template(
     """
     template_path = Path(template_path)
     output_path = Path(output_path)
+    quantum_region: Optional[QuantumRegion] = None
+    if replace_grid or replace_quantum:
+        quantum_region_policy = _resolve_quantum_region_policy(
+            quantum_region_policy,
+            z_grid_policy,
+        )
+        quantum_region = derive_quantum_region(
+            simulation_layout,
+            policy=quantum_region_policy,
+        )
 
     text = template_path.read_text(encoding="utf-8")
 
@@ -599,7 +914,15 @@ def write_nextnano_input_from_template(
         text = replace_block(text, "contacts", render_contacts_block(simulation_layout))
 
     if replace_structure:
-        text = replace_block(text, "structure", render_structure_block(simulation_layout))
+        text = replace_block(
+            text,
+            "structure",
+            render_structure_block(
+                simulation_layout,
+                quantum_region=quantum_region,
+                quantum_region_policy=quantum_region_policy,
+            ),
+        )
 
     if replace_grid:
         text = replace_block(
@@ -607,12 +930,22 @@ def write_nextnano_input_from_template(
             "grid",
             render_grid_block(
                 simulation_layout,
+                quantum_region=quantum_region,
+                quantum_region_policy=quantum_region_policy,
+                lateral_mesh_policy=lateral_mesh_policy,
                 z_grid_policy=z_grid_policy,
             ),
         )
 
     if replace_quantum:
-        text = replace_block(text, "quantum", render_quantum_block(simulation_layout))
+        text = replace_block(
+            text,
+            "quantum",
+            render_quantum_block(
+                simulation_layout,
+                quantum_region=quantum_region,
+            ),
+        )
 
     if replace_run:
         text = replace_block(text, "run", render_run_block())

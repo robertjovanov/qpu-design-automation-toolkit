@@ -258,6 +258,8 @@ contacts{
     schottky{ name = Source     bias = $V_source    work_function = $work_function_OC } 
     schottky{ name = Drain      bias = $V_drain     work_function = $work_function_OC } 
     ohmic{    name = Body       bias = 0.0          shift = 0.0 }
+    fermi_hole{ name = remove_surface_charge bias = -1.5 }
+    fermi_hole{ name = zero_fermi_QW bias = 0.0 }
 }
 
 structure{ 
@@ -306,6 +308,26 @@ structure{
             z = [$z_GeQW, $z_SiGe_cap] 
         }
         ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
+    }
+
+    # r-SiGe cap REMOVE SURFACE CHARGE
+    region{
+        cuboid{  
+            x = [-$x_OC_bound, $x_OC_bound]
+            y = [$y_BG_bound, $y_PG_bound]
+            z = [$z_GeQW, $z_SiGe_cap] 
+        }
+        contact{ name = remove_surface_charge}
+    }
+
+    # cs-Ge QW ZERO FERMI QW
+    region{
+        cuboid{ 
+            x = [-$x_OC_bound, $x_OC_bound]
+            y = [$y_BG_bound, $y_PG_bound]
+            z = [$z_QR_c_Ge_QW_start, $z_QR_c_Ge_QW_end] 
+        }
+        contact{ name = zero_fermi_QW }    
     }
 
     # cs-Ge cap

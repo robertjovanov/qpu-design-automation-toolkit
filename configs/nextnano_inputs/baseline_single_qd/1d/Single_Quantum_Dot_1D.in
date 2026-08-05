@@ -178,8 +178,10 @@ impurities{
 
 contacts{
     vacuum_level = $vacuum_level
-    schottky{ name = PG     bias = $V_PG    work_function = $work_function_Gate } 
+    schottky{ name = PG     bias = 0.0    work_function = $work_function_Gate - $V_PG } 
     ohmic{    name = Body   bias = 0.0      shift = 0.0 }
+    fermi_hole{ name = remove_surface_charge bias = -1.5 }
+    fermi_hole{ name = zero_fermi_QW bias = 0.0 }
 }
 
 structure{ 
@@ -210,6 +212,19 @@ structure{
         line{ x = [$z_GeQW, $z_SiGe_cap] }
         ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
     }
+    
+    # r-SiGe cap REMOVE SURFACE CHARGE
+    region{
+        line{ x = [$z_GeQW, $z_SiGe_cap] }
+        contact{ name = remove_surface_charge}
+    }
+
+    # cs-Ge QW ZERO FERMI QW
+    region{
+        line{ x = [$z_QR_c_Ge_QW_start, $z_QR_c_Ge_QW_end] }
+        contact{ name = zero_fermi_QW }    
+    }
+
     # cs-Ge cap
     region{
         line{ x = [$z_SiGe_cap, $z_Ge_cap] }
@@ -323,7 +338,7 @@ quantum{
         LH{ num_ev = $n_c_Ge_QW_LH }
 
         output_wavefunctions{
-            max_num = 5
+ #           max_num = 5
             amplitudes = no
             probabilities = yes
             all_k_points = no

@@ -68,7 +68,7 @@ $Lx_PG = 40 # (nm) width of PG
 $Lxy_PG_rad = 50 # (nm) radius of PG
 $Lx_BG_PG = 20 # (nm) minimum distance between BG and PG
 $Lx_BG = 40 # (nm) width of BG
-$Lx_OC_BG = 30000 # (nm) minimum distance between ohmic contacts and BG
+$Lx_OC_BG = 1000 # (nm) minimum distance between ohmic contacts and BG
 $Lx_OC_top = 40 # (nm) width of the ohmic contacts at the top of the simulation domain
 $Lx_OC_bottom = 30 # (nm) width of the ohmic contacts at the bottom ( in the buffer )
 
@@ -220,11 +220,13 @@ impurities{
 
 contacts{ 
     vacuum_level = $vacuum_level
-    schottky{ name = BG         bias = $V_BG        work_function = $work_function_Gate }
-    schottky{ name = PG         bias = $V_PG        work_function = $work_function_Gate } 
-    schottky{ name = Source     bias = $V_source    work_function = $work_function_OC } 
-    schottky{ name = Drain      bias = $V_drain     work_function = $work_function_OC } 
+    schottky{ name = BG         bias = 0.0        work_function = $work_function_Gate - $V_BG }
+    schottky{ name = PG         bias = 0.0        work_function = $work_function_Gate - $V_PG} 
+    schottky{ name = Source     bias = 0.0    work_function = $work_function_OC - $V_source } 
+    schottky{ name = Drain      bias = 0.0     work_function = $work_function_OC - $V_drain } 
     ohmic{    name = Body       bias = 0.0          shift = 0.0 }
+    fermi_hole{ name = remove_surface_charge bias = -1.5 }
+    fermi_hole{ name = zero_fermi_QW bias = 0.0 }
 }
 
 structure{ 
@@ -269,6 +271,22 @@ structure{
             y = [$z_GeQW, $z_SiGe_cap] 
         }
         ternary_constant{ name = "Si(x)Ge(1-x)" alloy_x = $alloy_x}
+    }
+    # r-SiGe cap REMOVE SURFACE CHARGE
+    region{
+        rectangle{  
+            x = [-$x_OC_bound, $x_OC_bound]
+            y = [$z_GeQW, $z_SiGe_cap] 
+        }
+        contact{ name = remove_surface_charge}
+    }
+    # cs-Ge QW ZERO FERMI QW
+    region{
+        rectangle{ 
+            x = [-$x_OC_bound, $x_OC_bound]
+            y = [$z_QR_c_Ge_QW_start, $z_QR_c_Ge_QW_end] 
+        }
+        contact{ name = zero_fermi_QW }    
     }
 
     # cs-Ge cap
